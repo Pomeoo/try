@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>粘性の球 — X軸</title>
+<title>花 — Y軸</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; touch-action:none; user-select:none; -webkit-user-select:none; }
 body { background:#0c0c0c; height:100dvh; overflow:hidden; }
@@ -30,158 +30,161 @@ canvas { display:block; width:100%; height:100dvh; }
 </div>
 <canvas id="c"></canvas>
 <div id="over">
-  <div class="ot">粘性の球 — X軸</div>
-  <div class="od">左右に傾けると粘性で球がゆっくり動きます<br>傾けすぎると止まり<br>90度で傾けた方向に飛び出します</div>
+  <div class="ot">花 — Y軸</div>
+  <div class="od">花は画面中央に固定されています<br>左右に傾けて通り過ぎると<br>なびいてゆっくり元に戻ります</div>
   <button class="obs" id="sb">Start</button>
 </div>
 <script>
 'use strict';
-const C=document.getElementById('c');
-const X=C.getContext('2d');
-function resize(){C.width=window.innerWidth; C.height=window.innerHeight;}
-resize(); window.addEventListener('resize',resize);
+const C = document.getElementById('c');
+const X = C.getContext('2d');
+function resize(){ C.width = window.innerWidth; C.height = window.innerHeight; }
+resize(); window.addEventListener('resize', resize);
 
-let rawGamma=0, hasG=false, playing=false;
+let rawGamma = 0, prevGamma = 0, dGamma = 0;
+let hasG = false, playing = false, time = 0;
 
-// Ball state
-let bx=0, by=0, vx=0, vy=0;
-let state='normal';   // 'normal' | 'falling' | 'idle'
-let idleTimer=0;
+// Camera pan: flower fixed in world, screen pans with tilt
+const PAN = () => C.width / 55;
 
-const ballR   = ()=> Math.min(C.width,C.height) * 0.115; // larger
-const maxDisp = ()=> C.width * 0.32;
-const FALL_DEG = 80;
+// ── Bend spring ──────────────────────────────────────────
+let bendAngle = 0, bendVel = 0;
+let wasInContact = false;
 
-function initBall(){
-  bx=C.width/2; by=C.height/2; vx=0; vy=0;
-  state='normal'; idleTimer=0;
+// Bigger swing, more oscillation, like being brushed by wind
+const CONTACT_DEG = 14;
+const SPRING_K    = 3.2;   // lower = slower, more graceful swing
+const SPRING_DAMP = 0.80;  // less damping = more oscillation
+const IMPULSE_MAX = 5.5;   // larger impulse for dramatic sway
+const MAX_BEND_PX = () => C.width * 0.22; // bigger visual lean
+
+// ── Bezier helpers ────────────────────────────────────────
+function bezP(P0,P1,P2,P3,t){
+  const m=1-t;
+  return {x:m*m*m*P0.x+3*m*m*t*P1.x+3*m*t*t*P2.x+t*t*t*P3.x,
+          y:m*m*m*P0.y+3*m*m*t*P1.y+3*m*t*t*P2.y+t*t*t*P3.y};
 }
-
-// ── Update ───────────────────────────────────────────────
-function update(dt){
-  const W=C.width, H=C.height, R=ballR();
-
-  if(state==='idle'){
-    idleTimer-=dt;
-    if(idleTimer<=0) initBall();
-    return;
-  }
-
-  if(state==='normal'){
-    if(Math.abs(rawGamma)>=FALL_DEG){ state='falling'; return; }
-
-    const posNorm=(bx-W/2)/maxDisp();
-    const friction=Math.pow(Math.abs(posNorm),3.5);
-    const driveF=(rawGamma/55)*1100*(1-friction*0.97);
-    const dragF =-vx*5.8;
-    vx+=(driveF+dragF)*dt;
-
-    const nextX=bx+vx*dt;
-    const disp=nextX-W/2;
-    if(Math.abs(disp)<maxDisp()){ bx=nextX; }
-    else { bx=W/2+Math.sign(disp)*maxDisp(); vx=0; }
-
-    by+=(H/2-by)*6*dt;
-  }
-
-  if(state==='falling'){
-    // Fall in the tilt direction (horizontal), not downward
-    const dir=Math.sign(rawGamma);
-    vx+=dir*3200*dt;   // strong horizontal thrust
-    vy+=280*dt;         // very slight downward drift only
-    bx+=vx*dt;
-    by+=vy*dt;
-
-    // Respawn when off-screen horizontally
-    if(bx < -R*3 || bx > W+R*3 || by > H+R*3){
-      state='idle'; idleTimer=0.75;
-      bx=W/2; by=H/2; vx=0; vy=0;
-    }
-  }
+function bezTan(P0,P1,P2,P3,t){
+  const m=1-t;
+  return {x:3*(m*m*(P1.x-P0.x)+2*m*t*(P2.x-P1.x)+t*t*(P3.x-P2.x)),
+          y:3*(m*m*(P1.y-P0.y)+2*m*t*(P2.y-P1.y)+t*t*(P3.y-P2.y))};
 }
-
-// ── Draw ─────────────────────────────────────────────────
-function draw(){
-  const W=C.width, H=C.height, R=ballR();
-  X.fillStyle='#0c0c0c'; X.fillRect(0,0,W,H);
-
-  if(state==='idle') return;
-
-  const posNorm   =(bx-W/2)/maxDisp();
-  const stuckFactor=Math.max(0,Math.abs(posNorm)-0.80)/0.20;
-
-  // Tension streaks near boundary
-  if(stuckFactor>0.04 && state==='normal'){
-    const sd=-Math.sign(bx-W/2);
-    for(let i=0;i<5;i++){
-      const dy=(i-2)*R*0.38;
-      const sx=bx+Math.sign(bx-W/2)*R*0.94;
-      const ex=sx+sd*R*(0.35+stuckFactor*0.85);
-      X.beginPath(); X.moveTo(sx,by+dy); X.lineTo(ex,by+dy);
-      X.strokeStyle=`rgba(160,210,230,${(stuckFactor*0.30).toFixed(3)})`;
-      X.lineWidth=1; X.stroke();
-    }
-  }
-
-  // Ground shadow (subtle)
-  if(state==='normal'){
-    X.save();
-    X.translate(bx, by+R*0.88);
-    X.scale(1.05,0.20);
-    X.beginPath(); X.arc(0,0,R,0,Math.PI*2);
-    X.fillStyle='rgba(100,180,210,0.10)'; X.fill();
-    X.restore();
-  }
-
-  // ── Water-colored sphere ──────────────────────────────
-  const sq=stuckFactor*0.10;
-  const rX=R*(1-sq), rY=R*(1+sq*0.5);
-
-  // Low-saturation light blue gradient (水色 with low saturation)
-  const grd=X.createRadialGradient(
-    bx-R*0.30, by-R*0.32, R*0.04,
-    bx, by, R*1.05
-  );
-  grd.addColorStop(0,    '#e8f4f8');   // very light blue-white (highlight)
-  grd.addColorStop(0.30, '#a8ccd8');   // light desaturated blue
-  grd.addColorStop(0.65, '#5a90a8');   // medium blue-gray
-  grd.addColorStop(1,    '#1c3848');   // dark blue shadow
-
-  X.save();
-  X.translate(bx,by); X.scale(rX/R,rY/R);
-  X.beginPath(); X.arc(0,0,R,0,Math.PI*2);
-  X.fillStyle=grd; X.fill();
-  X.restore();
-
-  // Inner rim (subtle edge glow for water feel)
-  X.save();
-  X.translate(bx,by); X.scale(rX/R,rY/R);
-  X.beginPath(); X.arc(0,0,R,0,Math.PI*2);
-  X.strokeStyle='rgba(180,230,245,0.25)'; X.lineWidth=2; X.stroke();
-  X.restore();
-
-  // Primary specular highlight
+function drawPetal(len, wid, color){
   X.beginPath();
-  X.arc(bx-R*0.28, by-R*0.30, R*0.16, 0, Math.PI*2);
-  X.fillStyle='rgba(255,255,255,0.78)'; X.fill();
-
-  // Secondary small highlight
+  X.moveTo(0,0);
+  X.bezierCurveTo(-wid,-len*0.22,-wid*0.60,-len*0.68,0,-len);
+  X.bezierCurveTo( wid*0.60,-len*0.68,wid,-len*0.22,0,0);
+  X.fillStyle=color; X.fill();
+}
+function drawLeaf(x,y,angle,size){
+  X.save(); X.translate(x,y); X.rotate(angle);
   X.beginPath();
-  X.arc(bx-R*0.12, by-R*0.52, R*0.065, 0, Math.PI*2);
-  X.fillStyle='rgba(255,255,255,0.45)'; X.fill();
-
-  // Subtle horizontal guide
-  X.strokeStyle='rgba(255,255,255,0.04)'; X.lineWidth=1;
-  X.beginPath(); X.moveTo(0,H/2); X.lineTo(W,H/2); X.stroke();
+  X.moveTo(0,0);
+  X.bezierCurveTo(size*0.30,-size*0.22,size*0.80,-size*0.18,size,0);
+  X.bezierCurveTo(size*0.80,size*0.18,size*0.30,size*0.22,0,0);
+  X.fillStyle='rgba(255,255,255,0.40)'; X.fill();
+  X.beginPath(); X.moveTo(0,0); X.lineTo(size*0.88,0);
+  X.strokeStyle='rgba(255,255,255,0.28)'; X.lineWidth=1; X.stroke();
+  X.restore();
 }
 
-// ── Loop ─────────────────────────────────────────────────
 let lt=0;
 function loop(ts){
   if(!playing) return;
-  const dt=Math.min((ts-lt)/1000,0.05); lt=ts;
-  update(dt); draw();
+  const dt=Math.min((ts-lt)/1000,0.05); lt=ts; time+=dt;
+
+  dGamma=(rawGamma-prevGamma)/Math.max(dt,0.001);
+  prevGamma=rawGamma;
+
+  const inContact = Math.abs(rawGamma) < CONTACT_DEG;
+
+  // Impulse when passing through the flower
+  if(inContact && !wasInContact){
+    // Scale impulse with crossing speed — fast swipe = big sway
+    const speed = Math.min(Math.abs(dGamma), 100) / 100;
+    const dir   = Math.sign(dGamma) || Math.sign(rawGamma) || 1;
+    bendVel    += dir * (0.5 + speed * 0.5) * IMPULSE_MAX;
+  }
+  wasInContact = inContact;
+
+  // Spring: restore + damping
+  bendVel -= bendAngle * SPRING_K * dt;
+  bendVel *= Math.pow(SPRING_DAMP, dt*60);
+  bendAngle += bendVel * dt;
+
+  draw();
   requestAnimationFrame(loop);
+}
+
+function draw(){
+  const W=C.width, H=C.height;
+  X.fillStyle='#0c0c0c'; X.fillRect(0,0,W,H);
+
+  // Flower screen X via camera pan
+  const fx = W/2 - rawGamma * PAN();
+
+  const bendPx = Math.sin(bendAngle) * MAX_BEND_PX();
+  const stemBot= H * 0.78;
+  const stemLen= H * 0.30;
+  const R      = Math.min(W,H) * 0.115;
+
+  const P0={x:fx,              y:stemBot};
+  const P1={x:fx+bendPx*0.30,  y:stemBot-stemLen*0.38};
+  const P2={x:fx+bendPx*0.78,  y:stemBot-stemLen*0.68};
+  const P3={x:fx+bendPx,       y:stemBot-stemLen};
+
+  const tan3    = bezTan(P0,P1,P2,P3,1.0);
+  const tipAngle= Math.atan2(tan3.y,tan3.x)+Math.PI/2;
+
+  // Flutter: visibly stronger when swaying hard
+  const swayAmt = Math.min(Math.abs(bendAngle), 1.2);
+  const flutter = Math.sin(time*2.6)*0.04*swayAmt;
+
+  // Leaves (lean more dramatically with bend)
+  const lp1=bezP(P0,P1,P2,P3,0.40), lt1=bezTan(P0,P1,P2,P3,0.40);
+  drawLeaf(lp1.x,lp1.y, Math.atan2(lt1.y,lt1.x)+Math.PI/2+0.42+bendAngle*0.35, R*0.60);
+
+  const lp2=bezP(P0,P1,P2,P3,0.58), lt2=bezTan(P0,P1,P2,P3,0.58);
+  drawLeaf(lp2.x,lp2.y, Math.atan2(lt2.y,lt2.x)-Math.PI/2-0.42+bendAngle*0.35, R*0.52);
+
+  // Stem
+  X.beginPath();
+  X.moveTo(P0.x,P0.y); X.bezierCurveTo(P1.x,P1.y,P2.x,P2.y,P3.x,P3.y);
+  X.strokeStyle='rgba(255,255,255,0.70)'; X.lineWidth=2.5; X.stroke();
+
+  // Flower head
+  X.save();
+  X.translate(P3.x,P3.y); X.rotate(tipAngle+flutter);
+
+  const nP=5, pLen=R*0.94, pWid=R*0.39;
+
+  // Per-petal sway: petals on the leading side lean more
+  for(let i=0;i<nP;i++){
+    const a=(i/nP)*Math.PI*2;
+    // Sway effect: petals in the bend direction lean more
+    const sway=Math.cos(a)*bendAngle*0.18;
+    const pfl =Math.sin(time*3.0+i*1.1)*0.06*swayAmt;
+    X.save(); X.rotate(a+pfl+sway); X.translate(0,3);
+    drawPetal(pLen,pWid,'rgba(0,0,0,0.18)');
+    X.restore();
+  }
+  for(let i=0;i<nP;i++){
+    const a=(i/nP)*Math.PI*2;
+    const sway=Math.cos(a)*bendAngle*0.18;
+    const pfl =Math.sin(time*3.0+i*1.1)*0.06*swayAmt;
+    // Petals on windward side brighten slightly
+    const bright=0.60+Math.cos(a-Math.sign(bendAngle||1)*Math.PI/2)*0.12*Math.min(Math.abs(bendAngle),1);
+    X.save(); X.rotate(a+pfl+sway);
+    drawPetal(pLen,pWid,`rgba(255,255,255,${bright.toFixed(2)})`);
+    X.restore();
+  }
+
+  // Center disc
+  const cg=X.createRadialGradient(-R*0.07,-R*0.07,0,0,0,R*0.27);
+  cg.addColorStop(0,'#e0e0e0'); cg.addColorStop(1,'#848484');
+  X.beginPath(); X.arc(0,0,R*0.27,0,Math.PI*2); X.fillStyle=cg; X.fill();
+
+  X.restore();
 }
 
 window.addEventListener('deviceorientation',e=>{hasG=true; rawGamma=e.gamma||0;},true);
@@ -195,7 +198,7 @@ setInterval(()=>{
   const s=2.5;
   if     (K['ArrowLeft'] ||K['a']) kGamma=Math.max(-90,kGamma-s);
   else if(K['ArrowRight']||K['d']) kGamma=Math.min( 90,kGamma+s);
-  else kGamma*=0.85;
+  else kGamma*=0.84;
   rawGamma=kGamma;
 },16);
 
@@ -207,7 +210,7 @@ document.getElementById('sb').addEventListener('click',async function(){
     }catch(e){}
   }
   document.getElementById('over').style.display='none';
-  initBall();
+  bendAngle=0; bendVel=0; wasInContact=false; prevGamma=rawGamma; time=0;
   playing=true; lt=performance.now(); requestAnimationFrame(loop);
 });
 </script>
