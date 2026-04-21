@@ -3,212 +3,217 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>粘性の球 — X軸</title>
+<title>表現工夫版 — Hard / Soft</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; touch-action:none; user-select:none; -webkit-user-select:none; }
-body { background:#0c0c0c; height:100dvh; overflow:hidden; }
-canvas { display:block; width:100%; height:100dvh; }
-#hud { position:fixed; top:0; left:0; right:0; display:flex; justify-content:space-between;
-       padding:20px 22px 0; pointer-events:none; z-index:5; }
-.hl { font-size:9px; letter-spacing:4px; text-transform:uppercase; color:rgba(255,255,255,0.18);
-      font-family:-apple-system,sans-serif; }
-#over { position:fixed; inset:0; background:#0c0c0c; display:flex; flex-direction:column;
-        align-items:center; justify-content:center; gap:28px; z-index:100; }
-.ot { font-size:10px; letter-spacing:8px; color:rgba(255,255,255,0.45); text-transform:uppercase;
-      font-family:-apple-system,sans-serif; }
-.od { font-size:11px; color:rgba(255,255,255,0.25); text-align:center; line-height:2.6;
-      font-family:-apple-system,sans-serif; }
-.obs { font-family:-apple-system,sans-serif; font-size:10px; letter-spacing:5px; text-transform:uppercase;
+body { background:#0c0c0c; height:100dvh; overflow:hidden; font-family:-apple-system,'Helvetica Neue',sans-serif; }
+canvas { display:block; }
+#hud {
+  position:fixed; top:0; left:0; right:0;
+  display:flex; justify-content:space-between; align-items:center;
+  padding:20px 22px 0; pointer-events:none; z-index:5;
+}
+.hl { font-size:9px; letter-spacing:4px; text-transform:uppercase; color:rgba(255,255,255,0.18); }
+.hc { font-size:8px; letter-spacing:2px; color:rgba(255,255,255,0.09); }
+#over {
+  position:fixed; inset:0; background:#0c0c0c;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:28px; z-index:100;
+}
+.ot { font-size:10px; letter-spacing:8px; color:rgba(255,255,255,0.45); text-transform:uppercase; }
+.od { font-size:11px; color:rgba(255,255,255,0.25); text-align:center; line-height:2.5; }
+.obs { font-family:inherit; font-size:10px; letter-spacing:5px; text-transform:uppercase;
        background:transparent; color:rgba(255,255,255,0.35);
        border:1px solid rgba(255,255,255,0.15); padding:14px 40px; cursor:pointer; }
 </style>
 </head>
 <body>
+
 <div id="hud">
-  <span class="hl">← 傾ける</span>
-  <span class="hl">傾ける →</span>
+  <span class="hl">← Hard</span>
+  <span class="hc">表現工夫版 · X軸</span>
+  <span class="hl">Soft →</span>
 </div>
 <canvas id="c"></canvas>
+
 <div id="over">
-  <div class="ot">粘性の球 — X軸</div>
-  <div class="od">左右に傾けると粘性で球がゆっくり動きます<br>傾けすぎると止まり<br>90度で傾けた方向に飛び出します</div>
+  <div class="ot">表現工夫版</div>
+  <div class="od">スマホを左右に傾けてください<br>← 左に傾ける = 硬い壁（約1秒表示）<br>→ 右に傾ける = 柔らかい壁（くぼむ）</div>
   <button class="obs" id="sb">Start</button>
 </div>
+
 <script>
 'use strict';
-const C=document.getElementById('c');
-const X=C.getContext('2d');
-function resize(){C.width=window.innerWidth; C.height=window.innerHeight;}
-resize(); window.addEventListener('resize',resize);
+const C = document.getElementById('c');
+const X = C.getContext('2d');
+function resize(){ C.width = innerWidth; C.height = innerHeight; }
+resize(); addEventListener('resize', resize);
 
-let rawGamma=0, hasG=false, playing=false;
+let tx = 0, hasG = false, playing = false;
 
-// Ball state
-let bx=0, by=0, vx=0, vy=0;
-let state='normal';   // 'normal' | 'falling' | 'idle'
-let idleTimer=0;
+const HWX = () => C.width * 0.155;
+const SWX = () => C.width * 0.845;
+const N   = 200;
+const sDx = new Float32Array(N);
+const MAX_INDENT = 52;
 
-const ballR   = ()=> Math.min(C.width,C.height) * 0.115; // larger
-const maxDisp = ()=> C.width * 0.32;
-const FALL_DEG = 80;
+const HOLD_DUR = 0.85;
+const FADE_DUR = 0.35;
+const H_THRESH = 0.13;
+const S_THRESH = 0.13;
 
-function initBall(){
-  bx=C.width/2; by=C.height/2; vx=0; vy=0;
-  state='normal'; idleTimer=0;
-}
+let hTimer = -1, hOpacity = 0, hWasActive = false;
 
-// ── Update ───────────────────────────────────────────────
-function update(dt){
-  const W=C.width, H=C.height, R=ballR();
-
-  if(state==='idle'){
-    idleTimer-=dt;
-    if(idleTimer<=0) initBall();
-    return;
-  }
-
-  if(state==='normal'){
-    if(Math.abs(rawGamma)>=FALL_DEG){ state='falling'; return; }
-
-    const posNorm=(bx-W/2)/maxDisp();
-    const friction=Math.pow(Math.abs(posNorm),3.5);
-    const driveF=(rawGamma/55)*1100*(1-friction*0.97);
-    const dragF =-vx*5.8;
-    vx+=(driveF+dragF)*dt;
-
-    const nextX=bx+vx*dt;
-    const disp=nextX-W/2;
-    if(Math.abs(disp)<maxDisp()){ bx=nextX; }
-    else { bx=W/2+Math.sign(disp)*maxDisp(); vx=0; }
-
-    by+=(H/2-by)*6*dt;
-  }
-
-  if(state==='falling'){
-    // Fall in the tilt direction (horizontal), not downward
-    const dir=Math.sign(rawGamma);
-    vx+=dir*3200*dt;   // strong horizontal thrust
-    vy+=280*dt;         // very slight downward drift only
-    bx+=vx*dt;
-    by+=vy*dt;
-
-    // Respawn when off-screen horizontally
-    if(bx < -R*3 || bx > W+R*3 || by > H+R*3){
-      state='idle'; idleTimer=0.75;
-      bx=W/2; by=H/2; vx=0; vy=0;
-    }
-  }
-}
-
-// ── Draw ─────────────────────────────────────────────────
-function draw(){
-  const W=C.width, H=C.height, R=ballR();
-  X.fillStyle='#0c0c0c'; X.fillRect(0,0,W,H);
-
-  if(state==='idle') return;
-
-  const posNorm   =(bx-W/2)/maxDisp();
-  const stuckFactor=Math.max(0,Math.abs(posNorm)-0.80)/0.20;
-
-  // Tension streaks near boundary
-  if(stuckFactor>0.04 && state==='normal'){
-    const sd=-Math.sign(bx-W/2);
-    for(let i=0;i<5;i++){
-      const dy=(i-2)*R*0.38;
-      const sx=bx+Math.sign(bx-W/2)*R*0.94;
-      const ex=sx+sd*R*(0.35+stuckFactor*0.85);
-      X.beginPath(); X.moveTo(sx,by+dy); X.lineTo(ex,by+dy);
-      X.strokeStyle=`rgba(160,210,230,${(stuckFactor*0.30).toFixed(3)})`;
-      X.lineWidth=1; X.stroke();
-    }
-  }
-
-  // Ground shadow (subtle)
-  if(state==='normal'){
-    X.save();
-    X.translate(bx, by+R*0.88);
-    X.scale(1.05,0.20);
-    X.beginPath(); X.arc(0,0,R,0,Math.PI*2);
-    X.fillStyle='rgba(100,180,210,0.10)'; X.fill();
-    X.restore();
-  }
-
-  // ── Water-colored sphere ──────────────────────────────
-  const sq=stuckFactor*0.10;
-  const rX=R*(1-sq), rY=R*(1+sq*0.5);
-
-  // Low-saturation light blue gradient (水色 with low saturation)
-  const grd=X.createRadialGradient(
-    bx-R*0.30, by-R*0.32, R*0.04,
-    bx, by, R*1.05
-  );
-  grd.addColorStop(0,    '#e8f4f8');   // very light blue-white (highlight)
-  grd.addColorStop(0.30, '#a8ccd8');   // light desaturated blue
-  grd.addColorStop(0.65, '#5a90a8');   // medium blue-gray
-  grd.addColorStop(1,    '#1c3848');   // dark blue shadow
-
-  X.save();
-  X.translate(bx,by); X.scale(rX/R,rY/R);
-  X.beginPath(); X.arc(0,0,R,0,Math.PI*2);
-  X.fillStyle=grd; X.fill();
-  X.restore();
-
-  // Inner rim (subtle edge glow for water feel)
-  X.save();
-  X.translate(bx,by); X.scale(rX/R,rY/R);
-  X.beginPath(); X.arc(0,0,R,0,Math.PI*2);
-  X.strokeStyle='rgba(180,230,245,0.25)'; X.lineWidth=2; X.stroke();
-  X.restore();
-
-  // Primary specular highlight
-  X.beginPath();
-  X.arc(bx-R*0.28, by-R*0.30, R*0.16, 0, Math.PI*2);
-  X.fillStyle='rgba(255,255,255,0.78)'; X.fill();
-
-  // Secondary small highlight
-  X.beginPath();
-  X.arc(bx-R*0.12, by-R*0.52, R*0.065, 0, Math.PI*2);
-  X.fillStyle='rgba(255,255,255,0.45)'; X.fill();
-
-  // Subtle horizontal guide
-  X.strokeStyle='rgba(255,255,255,0.04)'; X.lineWidth=1;
-  X.beginPath(); X.moveTo(0,H/2); X.lineTo(W,H/2); X.stroke();
-}
-
-// ── Loop ─────────────────────────────────────────────────
-let lt=0;
+let lt = 0;
 function loop(ts){
-  if(!playing) return;
-  const dt=Math.min((ts-lt)/1000,0.05); lt=ts;
-  update(dt); draw();
+  if (!playing) return;
+  const dt = Math.min((ts - lt) / 1000, 0.05);
+  lt = ts;
+
+  const hActive = tx < -H_THRESH;
+  const sActive = tx > S_THRESH;
+
+  // Hard wall: hold then fade
+  if (hActive && !hWasActive) hTimer = 0;
+  hWasActive = hActive;
+  if (hTimer >= 0) {
+    hTimer += dt;
+    hOpacity = hTimer < HOLD_DUR
+      ? 1.0
+      : Math.max(0, 1 - (hTimer - HOLD_DUR) / FADE_DUR);
+    if (hOpacity <= 0) hTimer = -1;
+  }
+
+  // Soft wall: cosine indent, fast in / slow return
+  const sOp = sActive ? Math.max(0, tx - S_THRESH) / (1 - S_THRESH) : 0;
+  const sh  = C.height / N;
+  for (let i = 0; i < N; i++) {
+    const tgt = MAX_INDENT * sOp * Math.sin(Math.PI * (i / (N - 1)));
+    const spd = tgt > sDx[i] ? 14 : 3.5;
+    sDx[i] += (tgt - sDx[i]) * spd * dt;
+    if (sDx[i] < 0) sDx[i] = 0;
+  }
+
+  draw(sOp);
   requestAnimationFrame(loop);
 }
 
-window.addEventListener('deviceorientation',e=>{hasG=true; rawGamma=e.gamma||0;},true);
+function draw(sOp){
+  const W = C.width, H = C.height;
+  const hw = HWX(), sw = SWX(), sh = C.height / N;
 
-const K={};
-window.addEventListener('keydown',e=>{K[e.key]=true;});
-window.addEventListener('keyup',  e=>{K[e.key]=false;});
-let kGamma=0;
-setInterval(()=>{
-  if(hasG) return;
-  const s=2.5;
-  if     (K['ArrowLeft'] ||K['a']) kGamma=Math.max(-90,kGamma-s);
-  else if(K['ArrowRight']||K['d']) kGamma=Math.min( 90,kGamma+s);
-  else kGamma*=0.85;
-  rawGamma=kGamma;
-},16);
+  X.fillStyle = '#0c0c0c';
+  X.fillRect(0, 0, W, H);
 
-document.getElementById('sb').addEventListener('click',async function(){
-  if(typeof DeviceOrientationEvent!=='undefined'&&
-     typeof DeviceOrientationEvent.requestPermission==='function'){
-    try{const r=await DeviceOrientationEvent.requestPermission();
-        if(r==='granted') window.addEventListener('deviceorientation',e=>{hasG=true;rawGamma=e.gamma||0;},true);
-    }catch(e){}
+  // Center reference line
+  X.save();
+  X.strokeStyle = 'rgba(255,255,255,0.035)';
+  X.lineWidth = 1; X.setLineDash([3,12]);
+  X.beginPath(); X.moveTo(W/2, 0); X.lineTo(W/2, H); X.stroke();
+  X.setLineDash([]); X.restore();
+
+  // ── HARD WALL ─────────────────────────────────────────
+  if (hOpacity > 0.004) {
+    X.save();
+    X.globalAlpha = hOpacity;
+
+    X.fillStyle = '#f0f0f0';
+    X.fillRect(0, 0, hw, H);
+
+    const glow = X.createRadialGradient(hw, H/2, 0, hw, H/2, W * 0.55);
+    glow.addColorStop(0,   'rgba(255,255,255,0.28)');
+    glow.addColorStop(0.4, 'rgba(255,255,255,0.06)');
+    glow.addColorStop(1,   'rgba(255,255,255,0)');
+    X.fillStyle = glow;
+    X.fillRect(0, 0, hw + W * 0.55, H);
+
+    X.beginPath();
+    X.arc(hw, H/2, hOpacity * W * 0.18, -Math.PI/1.9, Math.PI/1.9);
+    X.strokeStyle = `rgba(255,255,255,${hOpacity * 0.88})`;
+    X.lineWidth = 2; X.stroke();
+
+    X.globalAlpha = 1;
+    X.restore();
   }
-  document.getElementById('over').style.display='none';
-  initBall();
-  playing=true; lt=performance.now(); requestAnimationFrame(loop);
+
+  // ── SOFT WALL — concave indent ─────────────────────────
+  if (sOp > 0.01 || sDx.some(v => v > 0.3)) {
+    let maxD = 0;
+    for (let i = 0; i < N; i++) if (sDx[i] > maxD) maxD = sDx[i];
+
+    // Wall surface recedes rightward (into wall material)
+    X.beginPath();
+    X.moveTo(W, 0);
+    for (let i = 0; i <= N; i++) X.lineTo(sw + sDx[Math.min(i, N-1)], i * sh);
+    X.lineTo(W, H);
+    X.closePath();
+    X.fillStyle = '#7e7e7e';
+    X.fill();
+
+    // Pit interior shadow
+    if (maxD > 2) {
+      for (let i = 0; i < N; i++) {
+        if (sDx[i] < 0.4) continue;
+        const y   = i * sh;
+        const dep = Math.min(0.68, sDx[i] / 52);
+        const sg  = X.createLinearGradient(sw, 0, sw + sDx[i], 0);
+        sg.addColorStop(0,   'rgba(0,0,0,0)');
+        sg.addColorStop(0.5, `rgba(0,0,0,${dep * 0.55})`);
+        sg.addColorStop(1,   `rgba(0,0,0,${dep})`);
+        X.fillStyle = sg;
+        X.fillRect(sw, y, sDx[i] + 1, sh + 0.5);
+      }
+    }
+
+    // Rim highlight at pit mouth
+    if (maxD > 3) {
+      const rimG = X.createLinearGradient(sw - 6, 0, sw + 3, 0);
+      rimG.addColorStop(0,   'rgba(255,255,255,0)');
+      rimG.addColorStop(0.7, `rgba(255,255,255,${Math.min(0.45, sOp * 0.38)})`);
+      rimG.addColorStop(1,   'rgba(255,255,255,0)');
+      X.fillStyle = rimG;
+      X.fillRect(sw - 6, 0, 10, H);
+    }
+
+    // Recessed surface highlight
+    X.beginPath();
+    for (let i = 0; i <= N; i++) {
+      const x = sw + sDx[Math.min(i, N-1)], y = i * sh;
+      if (i === 0) X.moveTo(x, y); else X.lineTo(x, y);
+    }
+    X.strokeStyle = `rgba(255,255,255,${0.18 + sOp * 0.15})`;
+    X.lineWidth = 1.5; X.stroke();
+  }
+}
+
+// Keyboard fallback
+const K = {};
+addEventListener('keydown', e => { K[e.key] = true; });
+addEventListener('keyup',   e => { K[e.key] = false; });
+setInterval(() => {
+  if (hasG) return;
+  const s = 0.08;
+  if      (K['ArrowLeft']  || K['a']) tx = Math.max(-1, tx - s);
+  else if (K['ArrowRight'] || K['d']) tx = Math.min(1,  tx + s);
+  else tx *= 0.80;
+}, 16);
+
+// Gyro: gamma = left/right tilt
+addEventListener('deviceorientation', e => {
+  hasG = true;
+  tx = Math.max(-1, Math.min(1, (e.gamma || 0) / 30));
+}, true);
+
+document.getElementById('sb').addEventListener('click', async () => {
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try { const r = await DeviceOrientationEvent.requestPermission(); if (r === 'granted') hasG = true; } catch{}
+  }
+  document.getElementById('over').style.display = 'none';
+  sDx.fill(0);
+  hTimer = -1; hOpacity = 0; hWasActive = false;
+  playing = true; lt = performance.now();
+  requestAnimationFrame(loop);
 });
 </script>
 </body>
