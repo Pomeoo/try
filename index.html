@@ -9,54 +9,48 @@
 html, body {
   width:100%; height:100%; overflow:hidden;
   background:#fff;
-  -webkit-user-select:none; user-select:none;
   touch-action:none;
+  -webkit-user-select:none; user-select:none;
 }
 canvas { display:block; }
 
-#statusBar {
-  position:fixed; top:0; left:0; right:0;
-  padding:14px 20px;
-  display:flex; align-items:center; gap:8px;
+/* センサー動作確認インジケーター */
+#indicator {
+  position:fixed; top:20px; left:50%;
+  transform:translateX(-50%);
+  display:flex; align-items:center; gap:7px;
+  font-family:-apple-system, sans-serif;
+  font-size:11px; letter-spacing:0.08em;
+  color:rgba(0,0,0,0.25);
   pointer-events:none;
 }
 #dot {
   width:7px; height:7px; border-radius:50%;
-  background:rgba(0,0,0,0.12);
-  flex-shrink:0;
-  transition: background 0.3s;
-}
-#statusText {
-  font-family:-apple-system, sans-serif;
-  font-size:11px; letter-spacing:0.07em;
-  color:rgba(0,0,0,0.28);
-  transition: color 0.3s;
+  background:rgba(0,0,0,0.1);
 }
 
 #startBtn {
-  position:fixed; bottom:52px; left:50%;
+  position:fixed; bottom:54px; left:50%;
   transform:translateX(-50%);
-  padding:15px 52px;
-  border:1px solid rgba(0,0,0,0.14);
+  padding:15px 54px;
+  border:1px solid rgba(0,0,0,0.13);
   border-radius:100px;
-  background:rgba(0,0,0,0.03);
-  color:rgba(0,0,0,0.55);
+  background:transparent;
+  color:rgba(0,0,0,0.45);
   font-family:-apple-system, sans-serif;
   font-size:15px; letter-spacing:0.06em;
   cursor:pointer;
 }
-#startBtn:active { opacity:0.5; }
+#startBtn:active { opacity:0.4; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="statusBar">
-  <span id="dot"></span>
-  <span id="statusText">待機中</span>
-</div>
+<div id="indicator"><span id="dot"></span><span id="itext">待機中</span></div>
 <button id="startBtn" onclick="startSensor()">計測開始</button>
 
 <script>
+// ── Canvas ───────────────────────────────────────
 const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
 let W, H;
@@ -72,84 +66,84 @@ function resize() {
 resize();
 window.addEventListener('resize', resize);
 
-// ── センサー物理 ──────────────────────────────────────
-let posX      = 0;      // 右方向移動距離 (m)
-let velX      = 0;
-let lastT     = null;
-let running   = false;
-const STILL   = 0.09;   // 静止閾値 m/s²
-const VEL_DAMP = 0.80;
+// ── センサー物理 ─────────────────────────────────
+let posX    = 0;       // 右方向移動距離 (m)
+let velX    = 0;
+let lastT   = null;
+let running = false;
 
-const CATCH_X = 0.030;  // 3cm : 引っかかり
-const WALL_X  = 0.060;  // 6cm : ざらざら壁
+const STILL = 0.09;    // 静止閾値 m/s²
+const DAMP  = 0.78;    // 静止時速度ダンピング
 
-// ── 杖アニメーション ──────────────────────────────────
-// caneAngle: 垂直からの傾き (ラジアン)
-// + = 右傾き, - = 左傾き
-let caneAngle  = 0;
+// ── 仮想オブジェクトの位置 ───────────────────────
+const OBJ_X = 0.030;   // 3cm : 物体に当たる位置
 
-// 状態
-let catchFired = false;
-let catchT     = 0;     // 引っかかり発生時刻 (ms)
-let wallMode   = false;
+// ── 杖アニメーション ──────────────────────────────
+//
+// 設計思想:
+//   移動距離 posX → 杖の傾き角度 sweepAngle に直接マッピング
+//   支点は常に画面中央(W/2, H/2)で固定
+//   物体ヒット時: 一度だけ反発オフセット(impactOffset)を加算
+//
+const SWEEP_SCALE = 5.5;   // rad/m （移動量→角度の係数）
+//   例: 3cm移動 → 0.03 × 5.5 = 0.165 rad ≈ 9.4°
 
-// ── 杖の描画 ─────────────────────────────────────────
-// 画面中央を通り、angle だけ傾いた全高ライン
+let hitFired  = false;
+let hitTime   = 0;         // ヒット発生時刻 (performance.now)
+
+// 移動距離→基準角度
+function sweepAngle() {
+  return posX * SWEEP_SCALE;
+}
+
+// ヒット後の反発オフセット（減衰振動、一度きり）
+function impactOffset(now) {
+  if (!hitFired) return 0;
+  const t = (now - hitTime) * 0.001; // 秒
+  // -0.22rad(反発)から始まり減衰振動して0に収束
+  // exp(-t*7)*cos(t*20) : 約0.9秒で収束
+  return -0.22 * Math.exp(-t * 7.0) * Math.cos(t * 20.0);
+}
+
+// ── 描画 ─────────────────────────────────────────
 function drawCane(angle) {
-  const cx   = W / 2;
-  const half = H / 2;
-  const sa   = Math.sin(angle);
-  const ca   = Math.cos(angle);
-  // 中心を軸に回転した上端・下端
-  const x1 = cx - sa * half,  y1 = half - ca * half;
-  const x2 = cx + sa * half,  y2 = half + ca * half;
+  const cx = W / 2;
+  const cy = H / 2;
+  // 支点(cx,cy)を中心に、画面対角線より長い線を引く
+  const len = Math.hypot(W, H) * 0.6 + 10;
+  const sa  = Math.sin(angle);
+  const ca  = Math.cos(angle);
 
+  // 杖の線（2px グレー）
   ctx.save();
-  ctx.strokeStyle = '#b0b0b0';
+  ctx.strokeStyle = '#b2b2b2';
   ctx.lineWidth   = 2;
   ctx.lineCap     = 'butt';
   ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
+  ctx.moveTo(cx - sa * len, cy - ca * len); // 上方向端
+  ctx.lineTo(cx + sa * len, cy + ca * len); // 下方向端
   ctx.stroke();
   ctx.restore();
 }
 
-// ── 描画ループ ────────────────────────────────────────
 function draw(now) {
   requestAnimationFrame(draw);
 
-  // 背景（真っ白）
+  // 白背景
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, W, H);
 
-  // 杖の現在角度を状態に応じて算出
-  if (wallMode) {
-    // ざらざら: 左右高速往復（±約20°, 約10Hz）
-    // 2つの周波数を重ねてカツカツ感を出す
-    const t = now * 0.001;
-    caneAngle = Math.sin(t * 63.0) * 0.34
-              + Math.sin(t * 97.0) * 0.07;
+  // 現在の杖角度 = 移動量由来の基準角 + ヒット反発オフセット
+  const angle = sweepAngle() + impactOffset(now);
 
-  } else if (catchFired) {
-    // 引っかかり: 傾いてから戻る減衰振動
-    const elapsed = (now - catchT) * 0.001;
-    // 最大 ~22°(0.38rad) から減衰
-    caneAngle = 0.38 * Math.exp(-elapsed * 4.5)
-                     * Math.cos(elapsed * 20.0);
-
-  } else {
-    // 自由: 垂直に戻る
-    caneAngle *= 0.88;
-  }
-
-  drawCane(caneAngle);
+  drawCane(angle);
 }
 requestAnimationFrame(draw);
 
-// ── センサー処理 ──────────────────────────────────────
+// ── センサー処理 ──────────────────────────────────
 function handleMotion(e) {
   if (!running) return;
+
   const now = performance.now();
   if (!lastT) { lastT = now; return; }
   const dt = Math.min((now - lastT) * 0.001, 0.05);
@@ -158,53 +152,47 @@ function handleMotion(e) {
   const acc = e.accelerationIncludingGravity || e.acceleration;
   if (!acc) return;
 
-  // iPhone portrait 右方向 = acc.x 正
+  // iPhone portrait: X軸 = 左右（右が正）
   const raw      = acc.x || 0;
   const filtered = raw > STILL ? raw : 0;
 
-  velX = (velX + filtered * dt) * (filtered === 0 ? VEL_DAMP : 0.99);
+  velX = (velX + filtered * dt) * (filtered === 0 ? DAMP : 0.99);
   if (velX < 0.002) velX = 0;
 
-  // 右方向のみ加算。壁モードでは 6cm + α でキャップ
-  const delta = Math.max(0, velX * dt);
-  posX = wallMode
-    ? Math.min(posX + delta, WALL_X + 0.005)
-    : posX + delta;
+  // 右方向のみ加算
+  posX += Math.max(0, velX * dt);
 
-  // 状態遷移
-  if (!catchFired && posX >= CATCH_X) {
-    catchFired = true;
-    catchT     = performance.now();
-  }
-  if (!wallMode && posX >= WALL_X) {
-    wallMode = true;
+  // ── ヒット判定（一度きり） ──
+  if (!hitFired && posX >= OBJ_X) {
+    hitFired = true;
+    hitTime  = performance.now();
   }
 
-  updateStatus();
+  updateIndicator();
 }
 
-// ── ステータス表示 ────────────────────────────────────
-function updateStatus() {
+// ── 動作確認インジケーター ────────────────────────
+function updateIndicator() {
   const dot = document.getElementById('dot');
-  const txt = document.getElementById('statusText');
-  const cm  = (posX * 100).toFixed(1);
+  const txt = document.getElementById('itext');
 
-  if (wallMode) {
-    dot.style.background  = 'rgba(220,100,50,0.9)';
-    txt.style.color        = 'rgba(200,80,30,0.8)';
-    txt.textContent        = `ざらざら接触中 · ${cm} cm`;
-  } else if (catchFired) {
-    dot.style.background  = 'rgba(60,120,220,0.9)';
-    txt.style.color        = 'rgba(50,100,200,0.8)';
-    txt.textContent        = `引っかかり · ${cm} cm`;
+  if (hitFired) {
+    // ヒット後は収束しているかどうかで表示切替
+    const elapsed = (performance.now() - hitTime) * 0.001;
+    if (elapsed < 1.2) {
+      dot.style.background = 'rgba(60,120,220,0.9)';
+      txt.textContent      = 'ヒット';
+    } else {
+      dot.style.background = 'rgba(40,185,100,0.85)';
+      txt.textContent      = 'センサー動作中';
+    }
   } else {
-    dot.style.background  = 'rgba(40,180,100,0.85)';
-    txt.style.color        = 'rgba(0,0,0,0.28)';
-    txt.textContent        = `正常動作中 · ${cm} cm`;
+    dot.style.background = 'rgba(40,185,100,0.85)';
+    txt.textContent      = 'センサー動作中';
   }
 }
 
-// ── 開始 / リセット ────────────────────────────────────
+// ── 開始 ─────────────────────────────────────────
 async function startSensor() {
   const btn = document.getElementById('startBtn');
 
@@ -213,11 +201,11 @@ async function startSensor() {
     try {
       const p = await DeviceMotionEvent.requestPermission();
       if (p !== 'granted') {
-        document.getElementById('statusText').textContent = 'センサー許可が必要です';
+        document.getElementById('itext').textContent = 'センサー許可が必要です';
         return;
       }
     } catch(err) {
-      document.getElementById('statusText').textContent = '起動エラー';
+      document.getElementById('itext').textContent = '起動エラー';
       return;
     }
   }
@@ -228,21 +216,19 @@ async function startSensor() {
   btn.textContent = 'リセット';
   btn.onclick     = doReset;
 
-  const dot = document.getElementById('dot');
-  dot.style.background = 'rgba(40,180,100,0.85)';
-  document.getElementById('statusText').textContent = '正常動作中 · 0.0 cm';
+  document.getElementById('dot').style.background = 'rgba(40,185,100,0.85)';
+  document.getElementById('itext').textContent    = 'センサー動作中';
 }
 
+// ── リセット ─────────────────────────────────────
 function doReset() {
-  posX = 0; velX = 0;
-  caneAngle = 0;
-  catchFired = false;
-  wallMode   = false;
-  lastT      = null;
+  posX     = 0;
+  velX     = 0;
+  hitFired = false;
+  lastT    = null;
 
-  document.getElementById('dot').style.background   = 'rgba(40,180,100,0.85)';
-  document.getElementById('statusText').style.color = 'rgba(0,0,0,0.28)';
-  document.getElementById('statusText').textContent  = '正常動作中 · 0.0 cm';
+  document.getElementById('dot').style.background = 'rgba(40,185,100,0.85)';
+  document.getElementById('itext').textContent    = 'センサー動作中';
 }
 </script>
 </body>
