@@ -3,269 +3,448 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>仮想杖</title>
+<title>Virtual Cane | バーチャル杖</title>
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
-html, body {
-  width:100%; height:100%; overflow:hidden;
-  background:#fff;
-  touch-action:none;
-  -webkit-user-select:none; user-select:none;
-}
-canvas { display:block; }
+* { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; -webkit-tap-highlight-color: transparent; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #06090e; }
+canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: block; }
 
-#indicator {
-  position:fixed; top:20px; right:20px;
-  display:flex; align-items:center; gap:7px;
-  font-family:-apple-system, sans-serif;
-  font-size:11px; letter-spacing:0.08em;
-  color:rgba(0,0,0,0.25);
-  pointer-events:none;
+#overlay {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+  background: rgba(6, 9, 14, 0.97);
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
 }
-#dot {
-  width:7px; height:7px; border-radius:50%;
-  background:rgba(0,0,0,0.1);
-  transition:background 0.2s;
+#overlay h1 {
+  color: rgba(255,255,255,0.9); font-size: 24px; font-weight: 400; letter-spacing: 2px;
+  text-transform: uppercase;
 }
-#itxt { transition:color 0.2s; }
+#overlay .subtitle { color: rgba(255,255,255,0.35); font-size: 12px; letter-spacing: 1px; }
+#overlay .desc {
+  color: rgba(255,255,255,0.5); font-size: 13px; text-align: center;
+  max-width: 300px; line-height: 1.8; margin: 8px 0 16px;
+}
+#start-btn {
+  padding: 13px 40px;
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 40px;
+  color: rgba(255,255,255,0.8);
+  font-size: 14px; letter-spacing: 1px;
+  cursor: pointer; text-transform: uppercase;
+  transition: border-color 0.2s, background 0.2s;
+}
+#start-btn:hover { border-color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.05); }
+#start-btn:active { background: rgba(255,255,255,0.1); }
+.key-hint { color: rgba(255,255,255,0.2); font-size: 11px; letter-spacing: 0.5px; }
 
-#startBtn {
-  position:fixed; bottom:54px; left:50%;
-  transform:translateX(-50%);
-  padding:15px 56px; border-radius:100px;
-  border:1px solid rgba(0,0,0,0.13);
-  background:transparent;
-  color:rgba(0,0,0,0.45);
-  font-family:-apple-system, sans-serif;
-  font-size:15px; letter-spacing:0.06em;
-  cursor:pointer;
+#hud {
+  position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 20px; align-items: center;
+  font-family: 'SF Mono', 'Courier New', monospace;
+  font-size: 10px; color: rgba(255,255,255,0.2);
+  pointer-events: none; z-index: 10; letter-spacing: 0.5px;
+  white-space: nowrap;
 }
-#startBtn:active { opacity:0.4; }
+#hud .sep { color: rgba(255,255,255,0.1); }
+
+#toast {
+  position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%);
+  background: rgba(6,9,14,0.9);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; padding: 10px 22px;
+  font-family: -apple-system, sans-serif;
+  font-size: 14px; font-weight: 500; letter-spacing: 0.5px;
+  color: white; opacity: 0;
+  transition: opacity 0.25s;
+  pointer-events: none; z-index: 50; white-space: nowrap;
+}
 </style>
 </head>
 <body>
+
 <canvas id="c"></canvas>
-<div id="indicator"><span id="dot"></span><span id="itxt">待機中</span></div>
-<button id="startBtn" onclick="startSensor()">計測開始</button>
+
+<div id="overlay">
+  <div class="subtitle">prototype</div>
+  <h1>Virtual Cane</h1>
+  <p class="desc">
+    デバイスを水平に動かして<br>
+    見えない物体を探索してください<br>
+    杖先が物体にぶつかると<br>
+    質感に応じて反応します
+  </p>
+  <button id="start-btn">開始する</button>
+  <div class="key-hint">PCでは ← → キーで操作可能</div>
+</div>
+
+<div id="hud">
+  <span id="hud-pos">0.0 cm</span>
+  <span class="sep">|</span>
+  <span id="hud-mat">—</span>
+</div>
+
+<div id="toast"></div>
 
 <script>
-// ── Canvas ──────────────────────────────────────────
+// ══════════════════════════════════════════════
+//  CANVAS SETUP
+// ══════════════════════════════════════════════
 const canvas = document.getElementById('c');
-const ctx    = canvas.getContext('2d');
+const ctx = canvas.getContext('2d');
 let W, H;
-
-function resize() {
-  const dpr = window.devicePixelRatio || 1;
-  W = window.innerWidth;
-  H = window.innerHeight;
-  canvas.width  = W * dpr;
-  canvas.height = H * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
+function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
 resize();
 window.addEventListener('resize', resize);
 
-// ── 仮想世界 ─────────────────────────────────────────
-//
-// SCALE: 仮想世界(m) → スクリーン(px) の変換係数
-// 3200px/m = 32px/cm
-//
-const SCALE = 3200;
+// ══════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════
+let started = false;
+let vx = 0;           // virtual x position (cm)
+let vel = 0;          // velocity (cm/s)
+let lastT = null;
 
-// 3つのオブジェクト（横並び、2cm〜6cmの範囲に配置）
-// cx = 中心のワールド座標(m), hw = 半幅(m)
-const OBJS = [
-  { cx: 0.025, hw: 0.005, hit: false },  // 2.0〜3.0cm
-  { cx: 0.040, hw: 0.005, hit: false },  // 3.5〜4.5cm
-  { cx: 0.055, hw: 0.005, hit: false },  // 5.0〜6.0cm
+let tipOff = 0;       // cane tip x offset (px)  
+let tipVel = 0;       // tip velocity
+let inContact = false;
+let contactMat = null;
+
+// ══════════════════════════════════════════════
+//  OBJECTS & MATERIALS
+// ══════════════════════════════════════════════
+const CONTACT_WIDTH = 7; // cm — contact zone depth per object
+
+const objects = [
+  { pos: 20,  mat: 'wood'   },
+  { pos: 42,  mat: 'fabric' },
+  { pos: 63,  mat: 'glass'  },
+  { pos: 84,  mat: 'metal'  },
+  { pos: 105, mat: 'rubber' },
 ];
 
-// 1cmを表す表示サイズ
-const OBJ_SIDE = Math.round(SCALE * 0.010); // 32px
+/*
+  k  = spring stiffness (higher = harder/stiffer surface)
+  c  = damping coefficient (higher = settles faster, less oscillation)
+  maxD = max tip deflection in pixels
+  vib  = vibration pattern (Vibration API)
+*/
+const MATS = {
+  wood:   { jp: '木材', en: 'Wood',   col: '#c87c3a', k: 680,  c: 16,  maxD: 30, vib: [30, 10, 20]                },
+  fabric: { jp: '布',   en: 'Fabric', col: '#9b6ec8', k: 110,  c: 58,  maxD: 58, vib: [6, 6, 6, 6, 6, 6]         },
+  glass:  { jp: 'ガラス',en: 'Glass', col: '#63b8e8', k: 1500, c: 3.5, maxD: 10, vib: [12, 4, 10, 4, 12, 4, 8]   },
+  metal:  { jp: '金属', en: 'Metal',  col: '#a8bfc9', k: 2400, c: 2.0, maxD: 7,  vib: [60, 12, 40, 12, 50]       },
+  rubber: { jp: 'ゴム', en: 'Rubber', col: '#e04848', k: 360,  c: 10,  maxD: 75, vib: [18, 8, 36, 8, 24]         },
+};
 
-// ── 杖のバネ物理 ─────────────────────────────────────
-//
-// 杖は常に画面中央(W/2, H/2)を支点として表示される。
-// sAngle: バネによる傾き角(rad)。衝突時にキックされ、減衰振動して0に戻る。
-// 正 = 先端が右へ、負 = 先端が左へ。
-//
-let sAngle = 0;
-let sVel   = 0;
+// ══════════════════════════════════════════════
+//  TOAST
+// ══════════════════════════════════════════════
+const toastEl = document.getElementById('toast');
+let toastTid;
+function showToast(mat) {
+  const m = MATS[mat];
+  toastEl.textContent = m.jp + '  ' + m.en;
+  toastEl.style.color = m.col;
+  toastEl.style.borderColor = m.col + '55';
+  toastEl.style.opacity = '1';
+  clearTimeout(toastTid);
+  toastTid = setTimeout(() => { toastEl.style.opacity = '0'; }, 1800);
+}
 
-// ── センサー ─────────────────────────────────────────
-let posX    = 0;       // デバイスの右方向移動量(m)
-let velX    = 0;
-let lastST  = null;
-let running = false;
-const STILL = 0.09;   // 静止判定閾値 m/s²
-const DAMP  = 0.80;   // 静止時速度ダンピング
+// ══════════════════════════════════════════════
+//  START
+// ══════════════════════════════════════════════
+document.getElementById('start-btn').addEventListener('click', async () => {
+  if (typeof DeviceMotionEvent !== 'undefined' &&
+      typeof DeviceMotionEvent.requestPermission === 'function') {
+    try {
+      const p = await DeviceMotionEvent.requestPermission();
+      if (p !== 'granted') { alert('モーションセンサーの許可が必要です'); return; }
+    } catch (e) { /* fall through to keyboard mode */ }
+  }
+  started = true;
+  document.getElementById('overlay').style.display = 'none';
+  window.addEventListener('devicemotion', onMotion, { passive: true });
+});
 
-// ── 描画ループ ────────────────────────────────────────
-let lastDrawT = 0;
-let lastHitT  = -Infinity;
+// ══════════════════════════════════════════════
+//  DEVICE MOTION
+// ══════════════════════════════════════════════
+function onMotion(e) {
+  const ag = e.accelerationIncludingGravity;
+  if (!ag) return;
+  const now = performance.now();
+  if (lastT === null) { lastT = now; return; }
+  const dt = Math.min((now - lastT) / 1000, 0.05);
+  lastT = now;
 
-function draw(now) {
-  requestAnimationFrame(draw);
+  // x-axis = left / right when device held portrait
+  const ax = ag.x || 0;
+  vel += ax * dt * 55;
+  vel *= Math.pow(0.90, dt * 60);  // friction
+  vx = Math.max(0, vx + vel * dt);
+}
 
-  // バネ積分（フレーム差分で更新）
-  const dt = Math.min((now - (lastDrawT || now)) * 0.001, 0.05);
-  lastDrawT = now;
-  const F = -140 * sAngle - 13 * sVel;
-  sVel    += F * dt;
-  sAngle  += sVel * dt;
-  if (Math.abs(sAngle) < 0.0008 && Math.abs(sVel) < 0.0008) {
-    sAngle = 0; sVel = 0;
+// ══════════════════════════════════════════════
+//  KEYBOARD FALLBACK (desktop)
+// ══════════════════════════════════════════════
+const keys = {};
+window.addEventListener('keydown', e => {
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    e.preventDefault(); keys[e.key] = true;
+    if (!started) {
+      started = true;
+      document.getElementById('overlay').style.display = 'none';
+    }
+  }
+});
+window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+function applyKeyboard(dt) {
+  if (!started) return;
+  const spd = 22;
+  if (keys['ArrowRight']) vel = Math.min(vel + spd * dt * 60 * 0.12, 60);
+  else if (keys['ArrowLeft']) vel = Math.max(vel - spd * dt * 60 * 0.12, -60);
+  else vel *= Math.pow(0.82, dt * 60);
+  vx = Math.max(0, vx + vel * dt);
+}
+
+// ══════════════════════════════════════════════
+//  PHYSICS
+// ══════════════════════════════════════════════
+function physicsStep(dt) {
+  // ── Collision detection ──
+  let hit = null;
+  for (const obj of objects) {
+    const d = vx - obj.pos;
+    if (d >= 0 && d < CONTACT_WIDTH) { hit = { obj, d }; break; }
   }
 
-  // 背景
-  ctx.fillStyle = '#ffffff';
+  if (hit && !inContact) {
+    // First contact
+    inContact = true;
+    contactMat = hit.obj.mat;
+    // Initial impulse: speed-based, capped per material
+    const m = MATS[contactMat];
+    const impactVel = Math.min(Math.abs(vel), 40) + 5;
+    tipVel = -impactVel * (m.maxD / 35);
+    if (navigator.vibrate) navigator.vibrate(m.vib);
+    showToast(contactMat);
+    document.getElementById('hud-mat').textContent = m.jp;
+  } else if (!hit && inContact) {
+    inContact = false;
+    contactMat = null;
+    document.getElementById('hud-mat').textContent = '—';
+  }
+
+  if (inContact) {
+    const m = MATS[contactMat];
+    const depth = hit.d / CONTACT_WIDTH;          // 0..1
+    const target = -(depth * m.maxD);             // pushed backward
+    const spring  = (target - tipOff) * m.k * 0.001;
+    const damping = -tipVel * m.c * 0.1;
+    tipVel += (spring + damping) * dt * 60;
+  } else {
+    // Return to centre with spring
+    const spring  = -tipOff * 420 * 0.001;
+    const damping = -tipVel * 22 * 0.1;
+    tipVel += (spring + damping) * dt * 60;
+  }
+
+  tipOff += tipVel * dt * 60 * 0.28;
+  tipOff = Math.max(-130, Math.min(130, tipOff));
+}
+
+// ══════════════════════════════════════════════
+//  DRAW HELPERS
+// ══════════════════════════════════════════════
+function drawBackground() {
+  ctx.fillStyle = '#06090e';
   ctx.fillRect(0, 0, W, H);
+}
 
-  const cx = W / 2;
-  const cy = H / 2;
+function drawObjectHints() {
+  const MAX_RANGE = 130;
+  for (const obj of objects) {
+    const rel = obj.pos - vx;       // positive = ahead
+    if (rel < -5 || rel > 40) continue;
+    const m = MATS[obj.mat];
+    const alpha = Math.max(0, 1 - rel / 40) * 0.1;
+    const sx = W / 2 + rel * 7;    // rough screen projection
 
-  // ── オブジェクト描画 ───────────────────────────────
-  // スクリーンX = 画面中央 + (オブジェクトのワールドX - 現在の移動距離) × SCALE
-  // → posXが増えるほどオブジェクトは左へ流れる
-  const objY = H * 0.72; // オブジェクトのY位置（画面下部）
+    // Vertical glow band
+    const g = ctx.createLinearGradient(sx - 22, 0, sx + 22, 0);
+    g.addColorStop(0, 'transparent');
+    g.addColorStop(0.5, m.col + Math.round(alpha * 255).toString(16).padStart(2,'0'));
+    g.addColorStop(1, 'transparent');
+    ctx.fillStyle = g;
+    ctx.fillRect(sx - 22, 0, 44, H);
 
-  for (const obj of OBJS) {
-    const sx = cx + (obj.cx - posX) * SCALE;
-    // 画面外は描かない
-    if (sx + OBJ_SIDE < 0 || sx - OBJ_SIDE > W) continue;
+    // Text hint when close (5–35 cm away)
+    if (rel > 0 && rel < 28) {
+      const ta = Math.min(1, (1 - rel / 28)) * 0.55;
+      ctx.save();
+      ctx.globalAlpha = ta;
+      ctx.fillStyle = m.col;
+      ctx.font = '500 13px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(m.jp + '  ' + m.en, sx, H * 0.45);
+      ctx.font = '400 11px -apple-system, sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx.fillText(Math.round(rel) + ' cm 先', sx, H * 0.45 + 18);
+      ctx.restore();
+    }
+  }
+}
 
-    const left = sx - OBJ_SIDE / 2;
-    const top  = objY - OBJ_SIDE / 2;
+function drawRadar() {
+  const rx = 20, ry = 16, rw = W - 40, rh = 3;
+  const MAX = 130;
 
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(rx, ry, rw, rh, 2);
+  else ctx.rect(rx, ry, rw, rh);
+  ctx.fill();
+
+  for (const obj of objects) {
+    const sx = rx + (obj.pos / MAX) * rw;
+    const m = MATS[obj.mat];
+    const active = contactMat === obj.mat;
+    ctx.fillStyle = active ? m.col : m.col + '70';
+    ctx.beginPath();
+    ctx.arc(sx, ry + rh / 2, active ? 4 : 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    if (active) {
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = m.col;
+      ctx.beginPath();
+      ctx.arc(sx, ry + rh / 2, 8, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  const px = rx + Math.min(vx / MAX, 1) * rw;
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.beginPath();
+  ctx.arc(px, ry + rh / 2, 2.5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawCane(t) {
+  const cx  = W / 2;
+  const hY  = H - 55;   // handle y (bottom)
+  const tY  = 30;        // tip y (top)
+  const tX  = cx + tipOff;
+
+  // Bezier control points — shaft bends between handle and tip
+  const cp1x = cx + tipOff * 0.08;
+  const cp1y = hY - (hY - tY) * 0.32;
+  const cp2x = cx + tipOff * 0.55;
+  const cp2y = hY - (hY - tY) * 0.72;
+
+  // ── Glow when in contact ──
+  if (inContact && contactMat) {
+    const m = MATS[contactMat];
+    const intensity = Math.min(Math.abs(tipOff) / m.maxD, 1);
     ctx.save();
-    // ヒット済みは少し薄く（通過後）
-    ctx.fillStyle   = obj.hit
-      ? 'rgba(170,170,170,0.30)'
-      : 'rgba(170,170,170,0.85)';
-    ctx.strokeStyle = obj.hit
-      ? 'rgba(120,120,120,0.25)'
-      : 'rgba(110,110,110,0.75)';
-    ctx.lineWidth = 1;
-    ctx.fillRect(left, top, OBJ_SIDE, OBJ_SIDE);
-    ctx.strokeRect(left, top, OBJ_SIDE, OBJ_SIDE);
+    ctx.globalAlpha = 0.18 * intensity;
+    ctx.strokeStyle = m.col;
+    ctx.lineWidth = 18;
+    ctx.lineCap = 'round';
+    ctx.filter = 'blur(5px)';
+    ctx.beginPath();
+    ctx.moveTo(cx, hY);
+    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, tX, tY);
+    ctx.stroke();
     ctx.restore();
   }
 
-  // ── 杖描画 ────────────────────────────────────────
-  // 支点(cx, cy)を中心に sAngle だけ傾いた全画面長の直線
-  const halfLen = Math.hypot(W, H) * 0.55;
-  const sa = Math.sin(sAngle);
-  const ca = Math.cos(sAngle);
-
-  // 上端（持ち手側）
-  const x1 = cx - sa * halfLen;
-  const y1 = cy - ca * halfLen;
-  // 下端（先端側）
-  const x2 = cx + sa * halfLen;
-  const y2 = cy + ca * halfLen;
-
+  // ── Shaft (2 px) ──
   ctx.save();
-  ctx.strokeStyle = '#b0b0b0';
-  ctx.lineWidth   = 2;
-  ctx.lineCap     = 'butt';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  const grad = ctx.createLinearGradient(cx, hY, tX, tY);
+  if (inContact && contactMat) {
+    const m = MATS[contactMat];
+    grad.addColorStop(0,   '#d4a055');
+    grad.addColorStop(0.75,'rgba(255,255,255,0.88)');
+    grad.addColorStop(1,    m.col);
+  } else {
+    grad.addColorStop(0,   '#c8995a');
+    grad.addColorStop(0.8, 'rgba(255,255,255,0.82)');
+    grad.addColorStop(1,   'rgba(255,255,255,0.45)');
+  }
+  ctx.strokeStyle = grad;
   ctx.beginPath();
-  ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
+  ctx.moveTo(cx, hY);
+  ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, tX, tY);
   ctx.stroke();
   ctx.restore();
 
-  // ── ステータス更新 ────────────────────────────────
-  if (running) {
-    const dot = document.getElementById('dot');
-    const txt = document.getElementById('itxt');
-    const hitRecent = (now - lastHitT) < 1200;
+  // ── Handle (bottom) ──
+  ctx.save();
+  ctx.fillStyle = '#c8995a';
+  ctx.beginPath();
+  ctx.arc(cx, hY, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 
-    if (hitRecent) {
-      dot.style.background = 'rgba(60,120,220,0.9)';
-      txt.style.color      = 'rgba(60,120,220,0.85)';
-      txt.textContent      = 'ヒット';
-    } else {
-      dot.style.background = 'rgba(40,185,100,0.85)';
-      txt.style.color      = 'rgba(0,0,0,0.25)';
-      txt.textContent      = 'センサー動作中';
-    }
-  }
-}
-requestAnimationFrame(draw);
+  // ── Tip (top) ──
+  const tipR = inContact ? 3.5 : 3;
+  ctx.save();
+  ctx.fillStyle = inContact && contactMat ? MATS[contactMat].col : 'rgba(255,255,255,0.8)';
+  ctx.shadowColor = ctx.fillStyle;
+  ctx.shadowBlur = inContact ? 8 : 0;
+  ctx.beginPath();
+  ctx.arc(tX, tY, tipR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
 
-// ── センサー処理 ──────────────────────────────────────
-function handleMotion(e) {
-  if (!running) return;
-
-  const now = performance.now();
-  if (!lastST) { lastST = now; return; }
-  const dt = Math.min((now - lastST) * 0.001, 0.05);
-  lastST = now;
-
-  const acc = e.accelerationIncludingGravity || e.acceleration;
-  if (!acc) return;
-
-  // iPhone portrait: X軸 = 左右（右が正）
-  const raw      = acc.x || 0;
-  const filtered = raw > STILL ? raw : 0;
-
-  velX = (velX + filtered * dt) * (filtered === 0 ? DAMP : 0.99);
-  if (velX < 0.002) velX = 0;
-  posX += Math.max(0, velX * dt);  // 右方向のみ
-
-  // ── 衝突判定（オブジェクトごとに一度きり） ────────────
-  for (const obj of OBJS) {
-    if (!obj.hit && posX >= obj.cx - obj.hw) {
-      obj.hit  = true;
-      lastHitT = performance.now();
-      // 先端を左へ弾く（オブジェクトが右から押し返す力）
-      sVel -= 3.0;
+  // ── Ripple rings when hitting ──
+  if (inContact && contactMat && Math.abs(tipOff) > 3) {
+    const m = MATS[contactMat];
+    const intensity = Math.min(Math.abs(tipOff) / m.maxD, 1);
+    const phase = (t * 0.0025) % 1;
+    for (let i = 0; i < 3; i++) {
+      const p = (phase + i / 3) % 1;
+      const r = 5 + p * 36;
+      ctx.save();
+      ctx.globalAlpha = (1 - p) * 0.55 * intensity;
+      ctx.strokeStyle = m.col;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(tX, tY, r, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
     }
   }
 }
 
-// ── 開始 ─────────────────────────────────────────────
-async function startSensor() {
-  const btn = document.getElementById('startBtn');
+// ══════════════════════════════════════════════
+//  MAIN LOOP
+// ══════════════════════════════════════════════
+let prev = 0;
+function loop(t) {
+  const dt = Math.min((t - prev) / 1000, 0.05);
+  prev = t;
+  requestAnimationFrame(loop);
 
-  if (typeof DeviceMotionEvent !== 'undefined'
-      && typeof DeviceMotionEvent.requestPermission === 'function') {
-    try {
-      const p = await DeviceMotionEvent.requestPermission();
-      if (p !== 'granted') {
-        document.getElementById('itxt').textContent = 'センサー許可が必要です';
-        return;
-      }
-    } catch(err) {
-      document.getElementById('itxt').textContent = '起動エラー';
-      return;
-    }
+  applyKeyboard(dt);
+  if (started) {
+    physicsStep(dt);
+    document.getElementById('hud-pos').textContent = vx.toFixed(1) + ' cm';
   }
 
-  window.addEventListener('devicemotion', handleMotion, { passive: true });
-  running  = true;
-  lastST   = null;
-
-  btn.textContent = 'リセット';
-  btn.onclick     = doReset;
-
-  document.getElementById('dot').style.background = 'rgba(40,185,100,0.85)';
-  document.getElementById('itxt').textContent      = 'センサー動作中';
+  drawBackground();
+  drawObjectHints();
+  drawRadar();
+  drawCane(t);
 }
-
-// ── リセット ──────────────────────────────────────────
-function doReset() {
-  posX   = 0;
-  velX   = 0;
-  lastST = null;
-  sAngle = 0;
-  sVel   = 0;
-  lastHitT = -Infinity;
-  OBJS.forEach(o => o.hit = false);
-  document.getElementById('dot').style.background = 'rgba(40,185,100,0.85)';
-  document.getElementById('itxt').style.color     = 'rgba(0,0,0,0.25)';
-  document.getElementById('itxt').textContent      = 'センサー動作中';
-}
+requestAnimationFrame(loop);
 </script>
 </body>
 </html>
