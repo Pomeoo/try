@@ -14,10 +14,8 @@ html, body {
 }
 canvas { display:block; }
 
-/* センサー動作確認インジケーター */
 #indicator {
-  position:fixed; top:20px; left:50%;
-  transform:translateX(-50%);
+  position:fixed; top:20px; right:20px;
   display:flex; align-items:center; gap:7px;
   font-family:-apple-system, sans-serif;
   font-size:11px; letter-spacing:0.08em;
@@ -27,14 +25,15 @@ canvas { display:block; }
 #dot {
   width:7px; height:7px; border-radius:50%;
   background:rgba(0,0,0,0.1);
+  transition:background 0.2s;
 }
+#itxt { transition:color 0.2s; }
 
 #startBtn {
   position:fixed; bottom:54px; left:50%;
   transform:translateX(-50%);
-  padding:15px 54px;
+  padding:15px 56px; border-radius:100px;
   border:1px solid rgba(0,0,0,0.13);
-  border-radius:100px;
   background:transparent;
   color:rgba(0,0,0,0.45);
   font-family:-apple-system, sans-serif;
@@ -46,11 +45,11 @@ canvas { display:block; }
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="indicator"><span id="dot"></span><span id="itext">待機中</span></div>
+<div id="indicator"><span id="dot"></span><span id="itxt">待機中</span></div>
 <button id="startBtn" onclick="startSensor()">計測開始</button>
 
 <script>
-// ── Canvas ───────────────────────────────────────
+// ── Canvas ──────────────────────────────────────────
 const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
 let W, H;
@@ -66,88 +65,142 @@ function resize() {
 resize();
 window.addEventListener('resize', resize);
 
-// ── センサー物理 ─────────────────────────────────
-let posX    = 0;       // 右方向移動距離 (m)
+// ── 仮想世界 ─────────────────────────────────────────
+//
+// SCALE: 仮想世界(m) → スクリーン(px) の変換係数
+// 3200px/m = 32px/cm
+//
+const SCALE = 3200;
+
+// 3つのオブジェクト（横並び、2cm〜6cmの範囲に配置）
+// cx = 中心のワールド座標(m), hw = 半幅(m)
+const OBJS = [
+  { cx: 0.025, hw: 0.005, hit: false },  // 2.0〜3.0cm
+  { cx: 0.040, hw: 0.005, hit: false },  // 3.5〜4.5cm
+  { cx: 0.055, hw: 0.005, hit: false },  // 5.0〜6.0cm
+];
+
+// 1cmを表す表示サイズ
+const OBJ_SIDE = Math.round(SCALE * 0.010); // 32px
+
+// ── 杖のバネ物理 ─────────────────────────────────────
+//
+// 杖は常に画面中央(W/2, H/2)を支点として表示される。
+// sAngle: バネによる傾き角(rad)。衝突時にキックされ、減衰振動して0に戻る。
+// 正 = 先端が右へ、負 = 先端が左へ。
+//
+let sAngle = 0;
+let sVel   = 0;
+
+// ── センサー ─────────────────────────────────────────
+let posX    = 0;       // デバイスの右方向移動量(m)
 let velX    = 0;
-let lastT   = null;
+let lastST  = null;
 let running = false;
+const STILL = 0.09;   // 静止判定閾値 m/s²
+const DAMP  = 0.80;   // 静止時速度ダンピング
 
-const STILL = 0.09;    // 静止閾値 m/s²
-const DAMP  = 0.78;    // 静止時速度ダンピング
-
-// ── 仮想オブジェクトの位置 ───────────────────────
-const OBJ_X = 0.030;   // 3cm : 物体に当たる位置
-
-// ── 杖アニメーション ──────────────────────────────
-//
-// 設計思想:
-//   移動距離 posX → 杖の傾き角度 sweepAngle に直接マッピング
-//   支点は常に画面中央(W/2, H/2)で固定
-//   物体ヒット時: 一度だけ反発オフセット(impactOffset)を加算
-//
-const SWEEP_SCALE = 5.5;   // rad/m （移動量→角度の係数）
-//   例: 3cm移動 → 0.03 × 5.5 = 0.165 rad ≈ 9.4°
-
-let hitFired  = false;
-let hitTime   = 0;         // ヒット発生時刻 (performance.now)
-
-// 移動距離→基準角度
-function sweepAngle() {
-  return posX * SWEEP_SCALE;
-}
-
-// ヒット後の反発オフセット（減衰振動、一度きり）
-function impactOffset(now) {
-  if (!hitFired) return 0;
-  const t = (now - hitTime) * 0.001; // 秒
-  // -0.22rad(反発)から始まり減衰振動して0に収束
-  // exp(-t*7)*cos(t*20) : 約0.9秒で収束
-  return -0.22 * Math.exp(-t * 7.0) * Math.cos(t * 20.0);
-}
-
-// ── 描画 ─────────────────────────────────────────
-function drawCane(angle) {
-  const cx = W / 2;
-  const cy = H / 2;
-  // 支点(cx,cy)を中心に、画面対角線より長い線を引く
-  const len = Math.hypot(W, H) * 0.6 + 10;
-  const sa  = Math.sin(angle);
-  const ca  = Math.cos(angle);
-
-  // 杖の線（2px グレー）
-  ctx.save();
-  ctx.strokeStyle = '#b2b2b2';
-  ctx.lineWidth   = 2;
-  ctx.lineCap     = 'butt';
-  ctx.beginPath();
-  ctx.moveTo(cx - sa * len, cy - ca * len); // 上方向端
-  ctx.lineTo(cx + sa * len, cy + ca * len); // 下方向端
-  ctx.stroke();
-  ctx.restore();
-}
+// ── 描画ループ ────────────────────────────────────────
+let lastDrawT = 0;
+let lastHitT  = -Infinity;
 
 function draw(now) {
   requestAnimationFrame(draw);
 
-  // 白背景
+  // バネ積分（フレーム差分で更新）
+  const dt = Math.min((now - (lastDrawT || now)) * 0.001, 0.05);
+  lastDrawT = now;
+  const F = -140 * sAngle - 13 * sVel;
+  sVel    += F * dt;
+  sAngle  += sVel * dt;
+  if (Math.abs(sAngle) < 0.0008 && Math.abs(sVel) < 0.0008) {
+    sAngle = 0; sVel = 0;
+  }
+
+  // 背景
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, W, H);
 
-  // 現在の杖角度 = 移動量由来の基準角 + ヒット反発オフセット
-  const angle = sweepAngle() + impactOffset(now);
+  const cx = W / 2;
+  const cy = H / 2;
 
-  drawCane(angle);
+  // ── オブジェクト描画 ───────────────────────────────
+  // スクリーンX = 画面中央 + (オブジェクトのワールドX - 現在の移動距離) × SCALE
+  // → posXが増えるほどオブジェクトは左へ流れる
+  const objY = H * 0.72; // オブジェクトのY位置（画面下部）
+
+  for (const obj of OBJS) {
+    const sx = cx + (obj.cx - posX) * SCALE;
+    // 画面外は描かない
+    if (sx + OBJ_SIDE < 0 || sx - OBJ_SIDE > W) continue;
+
+    const left = sx - OBJ_SIDE / 2;
+    const top  = objY - OBJ_SIDE / 2;
+
+    ctx.save();
+    // ヒット済みは少し薄く（通過後）
+    ctx.fillStyle   = obj.hit
+      ? 'rgba(170,170,170,0.30)'
+      : 'rgba(170,170,170,0.85)';
+    ctx.strokeStyle = obj.hit
+      ? 'rgba(120,120,120,0.25)'
+      : 'rgba(110,110,110,0.75)';
+    ctx.lineWidth = 1;
+    ctx.fillRect(left, top, OBJ_SIDE, OBJ_SIDE);
+    ctx.strokeRect(left, top, OBJ_SIDE, OBJ_SIDE);
+    ctx.restore();
+  }
+
+  // ── 杖描画 ────────────────────────────────────────
+  // 支点(cx, cy)を中心に sAngle だけ傾いた全画面長の直線
+  const halfLen = Math.hypot(W, H) * 0.55;
+  const sa = Math.sin(sAngle);
+  const ca = Math.cos(sAngle);
+
+  // 上端（持ち手側）
+  const x1 = cx - sa * halfLen;
+  const y1 = cy - ca * halfLen;
+  // 下端（先端側）
+  const x2 = cx + sa * halfLen;
+  const y2 = cy + ca * halfLen;
+
+  ctx.save();
+  ctx.strokeStyle = '#b0b0b0';
+  ctx.lineWidth   = 2;
+  ctx.lineCap     = 'butt';
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.restore();
+
+  // ── ステータス更新 ────────────────────────────────
+  if (running) {
+    const dot = document.getElementById('dot');
+    const txt = document.getElementById('itxt');
+    const hitRecent = (now - lastHitT) < 1200;
+
+    if (hitRecent) {
+      dot.style.background = 'rgba(60,120,220,0.9)';
+      txt.style.color      = 'rgba(60,120,220,0.85)';
+      txt.textContent      = 'ヒット';
+    } else {
+      dot.style.background = 'rgba(40,185,100,0.85)';
+      txt.style.color      = 'rgba(0,0,0,0.25)';
+      txt.textContent      = 'センサー動作中';
+    }
+  }
 }
 requestAnimationFrame(draw);
 
-// ── センサー処理 ──────────────────────────────────
+// ── センサー処理 ──────────────────────────────────────
 function handleMotion(e) {
   if (!running) return;
 
   const now = performance.now();
-  if (!lastT) { lastT = now; return; }
-  const dt = Math.min((now - lastT) * 0.001, 0.05);
-  lastT = now;
+  if (!lastST) { lastST = now; return; }
+  const dt = Math.min((now - lastST) * 0.001, 0.05);
+  lastST = now;
 
   const acc = e.accelerationIncludingGravity || e.acceleration;
   if (!acc) return;
@@ -158,41 +211,20 @@ function handleMotion(e) {
 
   velX = (velX + filtered * dt) * (filtered === 0 ? DAMP : 0.99);
   if (velX < 0.002) velX = 0;
+  posX += Math.max(0, velX * dt);  // 右方向のみ
 
-  // 右方向のみ加算
-  posX += Math.max(0, velX * dt);
-
-  // ── ヒット判定（一度きり） ──
-  if (!hitFired && posX >= OBJ_X) {
-    hitFired = true;
-    hitTime  = performance.now();
-  }
-
-  updateIndicator();
-}
-
-// ── 動作確認インジケーター ────────────────────────
-function updateIndicator() {
-  const dot = document.getElementById('dot');
-  const txt = document.getElementById('itext');
-
-  if (hitFired) {
-    // ヒット後は収束しているかどうかで表示切替
-    const elapsed = (performance.now() - hitTime) * 0.001;
-    if (elapsed < 1.2) {
-      dot.style.background = 'rgba(60,120,220,0.9)';
-      txt.textContent      = 'ヒット';
-    } else {
-      dot.style.background = 'rgba(40,185,100,0.85)';
-      txt.textContent      = 'センサー動作中';
+  // ── 衝突判定（オブジェクトごとに一度きり） ────────────
+  for (const obj of OBJS) {
+    if (!obj.hit && posX >= obj.cx - obj.hw) {
+      obj.hit  = true;
+      lastHitT = performance.now();
+      // 先端を左へ弾く（オブジェクトが右から押し返す力）
+      sVel -= 3.0;
     }
-  } else {
-    dot.style.background = 'rgba(40,185,100,0.85)';
-    txt.textContent      = 'センサー動作中';
   }
 }
 
-// ── 開始 ─────────────────────────────────────────
+// ── 開始 ─────────────────────────────────────────────
 async function startSensor() {
   const btn = document.getElementById('startBtn');
 
@@ -201,34 +233,38 @@ async function startSensor() {
     try {
       const p = await DeviceMotionEvent.requestPermission();
       if (p !== 'granted') {
-        document.getElementById('itext').textContent = 'センサー許可が必要です';
+        document.getElementById('itxt').textContent = 'センサー許可が必要です';
         return;
       }
     } catch(err) {
-      document.getElementById('itext').textContent = '起動エラー';
+      document.getElementById('itxt').textContent = '起動エラー';
       return;
     }
   }
 
   window.addEventListener('devicemotion', handleMotion, { passive: true });
-  running = true;
+  running  = true;
+  lastST   = null;
 
   btn.textContent = 'リセット';
   btn.onclick     = doReset;
 
   document.getElementById('dot').style.background = 'rgba(40,185,100,0.85)';
-  document.getElementById('itext').textContent    = 'センサー動作中';
+  document.getElementById('itxt').textContent      = 'センサー動作中';
 }
 
-// ── リセット ─────────────────────────────────────
+// ── リセット ──────────────────────────────────────────
 function doReset() {
-  posX     = 0;
-  velX     = 0;
-  hitFired = false;
-  lastT    = null;
-
+  posX   = 0;
+  velX   = 0;
+  lastST = null;
+  sAngle = 0;
+  sVel   = 0;
+  lastHitT = -Infinity;
+  OBJS.forEach(o => o.hit = false);
   document.getElementById('dot').style.background = 'rgba(40,185,100,0.85)';
-  document.getElementById('itext').textContent    = 'センサー動作中';
+  document.getElementById('itxt').style.color     = 'rgba(0,0,0,0.25)';
+  document.getElementById('itxt').textContent      = 'センサー動作中';
 }
 </script>
 </body>
