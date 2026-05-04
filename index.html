@@ -1,141 +1,202 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>iPhone水平移動検知 WebAR</title>
-    <style>
-        body {
-            margin: 0;
-            overflow: hidden;
-            font-family: sans-serif;
-            color: white;
-            text-align: center;
-        }
-        #ar-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            justify-content: flex-end;
-            align-items: center;
-            pointer-events: none; /* ARコンテンツとの干渉を防ぐ */
-            z-index: 100;
-        }
-        #distance-display {
-            background-color: rgba(0, 0, 0, 0.7);
-            padding: 15px 25px;
-            border-radius: 10px;
-            font-size: 2em;
-            margin-bottom: 50px;
-        }
-        #start-ar-button {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 15px 30px;
-            font-size: 1.2em;
-            background-color: #007bff;
-            color: white;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            z-index: 101;
-        }
-        #start-ar-button:hover {
-            background-color: #0056b3;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>水平移動距離メーター</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, sans-serif; background: #f5f5f0; min-height: 100vh; padding: 1.5rem 1rem; }
+  h1 { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 1rem; }
+  .badge { display: inline-block; font-size: 12px; padding: 3px 10px; border-radius: 8px; margin-bottom: 1rem; font-weight: 500; }
+  .stat-card { background: #fff; border-radius: 12px; padding: 1rem; margin-bottom: 10px; border: 0.5px solid #e0e0d8; }
+  .stat-label { font-size: 12px; color: #888; margin-bottom: 4px; }
+  .stat-value { font-size: 32px; font-weight: 600; color: #1a1a1a; }
+  .stat-unit { font-size: 14px; color: #888; margin-left: 4px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+  .stat-value-sm { font-size: 22px; font-weight: 600; }
+  .vis-card { background: #fff; border-radius: 12px; padding: 1rem; margin-bottom: 10px; border: 0.5px solid #e0e0d8; }
+  .vis-label { font-size: 12px; color: #888; margin-bottom: 8px; }
+  .bar-track { position: relative; height: 36px; background: #f5f5f0; border-radius: 18px; overflow: hidden; margin-bottom: 8px; }
+  .bar-center { position: absolute; left: 50%; top: 0; width: 1.5px; height: 100%; background: #ccc; }
+  .bar-fill { position: absolute; top: 5px; bottom: 5px; border-radius: 12px; background: #1D9E75; transition: left 0.08s, width 0.08s; }
+  .bar-dot { position: absolute; width: 26px; height: 26px; border-radius: 50%; top: 5px; background: #1D9E75; transition: left 0.08s; transform: translateX(-50%); }
+  .mini-track { height: 10px; background: #f5f5f0; border-radius: 5px; overflow: hidden; position: relative; margin-top: 6px; }
+  .mini-fill { position: absolute; top: 0; height: 100%; border-radius: 5px; background: #378ADD; transition: left 0.05s, width 0.05s; }
+  canvas { width: 100%; height: 80px; display: block; border-radius: 8px; background: #f5f5f0; }
+  .btn-row { display: flex; gap: 8px; margin-top: 10px; }
+  .btn-start { flex: 1; padding: 14px; border: none; border-radius: 10px; font-size: 16px; font-weight: 600; background: #1D9E75; color: #fff; cursor: pointer; }
+  .btn-start:active { transform: scale(0.97); }
+  .btn-reset { padding: 14px 20px; border: 0.5px solid #ccc; border-radius: 10px; font-size: 14px; background: #fff; color: #666; cursor: pointer; }
+  .hint { font-size: 13px; color: #999; text-align: center; margin-top: 10px; line-height: 1.6; }
+</style>
 </head>
 <body>
-    <button id="start-ar-button">ARを開始</button>
-    <div id="ar-overlay">
-        <div id="distance-display">移動距離: 0.00 m</div>
-    </div>
+<h1>水平移動距離メーター</h1>
+<div id="statusBadge" class="badge" style="background:#EAF3DE;color:#3B6D11;">待機中</div>
 
-    <script type="module">
-        import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
-        import { ARButton } from 'https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js';
+<div class="stat-card">
+  <div class="stat-label">総移動距離</div>
+  <div><span class="stat-value" id="totalDist">0.00</span><span class="stat-unit">m</span></div>
+</div>
 
-        let camera, scene, renderer;
-        let controller;
-        let lastCameraPosition = new THREE.Vector3( );
-        let totalHorizontalDistance = 0;
-        let distanceDisplay;
+<div class="grid2">
+  <div class="stat-card">
+    <div class="stat-label">現在位置</div>
+    <div><span class="stat-value-sm" id="posX">0.00</span><span class="stat-unit">m</span></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-label">速度</div>
+    <div><span class="stat-value-sm" id="velX">0.00</span><span class="stat-unit">m/s</span></div>
+  </div>
+</div>
 
-        init();
-        animate();
+<div class="vis-card">
+  <div class="vis-label">位置バー（中心=原点）</div>
+  <div class="bar-track">
+    <div class="bar-center"></div>
+    <div class="bar-fill" id="barFill" style="left:50%;width:0;"></div>
+    <div class="bar-dot" id="barDot" style="left:50%;"></div>
+  </div>
+  <div class="vis-label" style="margin-top:8px;">加速度 X軸</div>
+  <div class="mini-track">
+    <div class="mini-fill" id="accelBar" style="left:50%;width:0;"></div>
+  </div>
+</div>
 
-        function init() {
-            scene = new THREE.Scene();
+<div class="vis-card">
+  <div class="vis-label">移動軌跡</div>
+  <canvas id="pathCanvas"></canvas>
+</div>
 
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+<div class="btn-row">
+  <button class="btn-start" id="startBtn" onclick="toggleMeasure()">計測開始</button>
+  <button class="btn-reset" onclick="resetAll()">リセット</button>
+</div>
+<p class="hint" id="hintText">「計測開始」をタップしてセンサーを起動<br>iPhoneを水平に持ち、横にスライドさせてください</p>
 
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.xr.enabled = true;
-            document.body.appendChild(renderer.domElement);
+<script>
+let running = false, lastTime = null;
+let velX = 0, posX = 0, totalDist = 0, prevPosX = 0, rawAcc = 0;
+const STILL_THRESHOLD = 0.08, DAMPING = 0.92;
+const pathPoints = [], MAX_PATH = 200;
 
-            document.body.appendChild(ARButton.createButton(renderer, { requiredFeatures: ['hit-test', 'dom-overlay'], domOverlay: { root: document.body } }));
+const canvas = document.getElementById('pathCanvas');
+const ctx = canvas.getContext('2d');
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.offsetWidth * dpr;
+  canvas.height = canvas.offsetHeight * dpr;
+  ctx.scale(dpr, dpr);
+}
+resizeCanvas();
 
-            distanceDisplay = document.getElementById('distance-display');
+function drawPath() {
+  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+  ctx.clearRect(0, 0, W, H);
+  if (pathPoints.length < 2) return;
+  const minP = Math.min(...pathPoints), maxP = Math.max(...pathPoints);
+  const range = Math.max(maxP - minP, 0.5);
+  const zeroY = H - ((0 - minP) / range) * (H - 12) - 6;
+  ctx.strokeStyle = 'rgba(29,158,117,0.2)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(W, zeroY); ctx.stroke();
+  ctx.beginPath();
+  ctx.strokeStyle = '#1D9E75'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+  pathPoints.forEach((p, i) => {
+    const x = (i / (MAX_PATH - 1)) * W;
+    const y = H - ((p - minP) / range) * (H - 12) - 6;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
 
-            // ARセッション開始時に初期位置をリセット
-            renderer.xr.addEventListener('sessionstart', function () {
-                console.log('AR Session Started');
-                lastCameraPosition.set(0, 0, 0);
-                totalHorizontalDistance = 0;
-                distanceDisplay.textContent = '移動距離: 0.00 m';
-            });
+function updateUI() {
+  document.getElementById('totalDist').textContent = totalDist.toFixed(2);
+  document.getElementById('posX').textContent = posX.toFixed(2);
+  document.getElementById('velX').textContent = velX.toFixed(2);
+  const clamp = Math.max(-2, Math.min(2, posX));
+  const pct = (clamp / 2) * 50 + 50;
+  document.getElementById('barDot').style.left = pct + '%';
+  if (pct >= 50) {
+    document.getElementById('barFill').style.left = '50%';
+    document.getElementById('barFill').style.width = (pct - 50) + '%';
+  } else {
+    document.getElementById('barFill').style.left = pct + '%';
+    document.getElementById('barFill').style.width = (50 - pct) + '%';
+  }
+  const aClamp = Math.max(-5, Math.min(5, rawAcc));
+  const aPct = (aClamp / 5) * 50 + 50;
+  if (aPct >= 50) {
+    document.getElementById('accelBar').style.left = '50%';
+    document.getElementById('accelBar').style.width = (aPct - 50) + '%';
+  } else {
+    document.getElementById('accelBar').style.left = aPct + '%';
+    document.getElementById('accelBar').style.width = (50 - aPct) + '%';
+  }
+  if (pathPoints.length >= MAX_PATH) pathPoints.shift();
+  pathPoints.push(posX);
+  drawPath();
+}
 
-            window.addEventListener('resize', onWindowResize, false);
+function handleMotion(event) {
+  if (!running) return;
+  const now = performance.now();
+  if (!lastTime) { lastTime = now; return; }
+  const dt = (now - lastTime) / 1000;
+  lastTime = now;
+  if (dt <= 0 || dt > 0.2) return;
+  const acc = event.accelerationIncludingGravity || event.acceleration;
+  if (!acc) return;
+  rawAcc = acc.x || 0;
+  const fAcc = Math.abs(rawAcc) < STILL_THRESHOLD ? 0 : rawAcc;
+  velX = (velX + fAcc * dt) * (fAcc === 0 ? DAMPING : 1);
+  if (Math.abs(velX) < 0.001) velX = 0;
+  prevPosX = posX;
+  posX += velX * dt;
+  totalDist += Math.abs(posX - prevPosX);
+  updateUI();
+}
+
+async function toggleMeasure() {
+  if (!running) {
+    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+      try {
+        const perm = await DeviceMotionEvent.requestPermission();
+        if (perm !== 'granted') {
+          document.getElementById('hintText').textContent = '許可が拒否されました。設定 > Safari > モーションとフィットネスを確認してください';
+          return;
         }
+      } catch(e) {
+        document.getElementById('hintText').textContent = 'エラー: ' + e.message;
+        return;
+      }
+    }
+    window.addEventListener('devicemotion', handleMotion);
+    running = true; lastTime = null;
+    document.getElementById('startBtn').textContent = '計測停止';
+    document.getElementById('startBtn').style.background = '#993C1D';
+    const b = document.getElementById('statusBadge');
+    b.style.background = '#E1F5EE'; b.style.color = '#0F6E56'; b.textContent = '計測中';
+    document.getElementById('hintText').textContent = 'iPhoneを水平に持ち、左右にゆっくり動かしてください';
+  } else {
+    window.removeEventListener('devicemotion', handleMotion);
+    running = false;
+    document.getElementById('startBtn').textContent = '計測開始';
+    document.getElementById('startBtn').style.background = '#1D9E75';
+    const b = document.getElementById('statusBadge');
+    b.style.background = '#FAEEDA'; b.style.color = '#854F0B'; b.textContent = '停止中';
+    document.getElementById('hintText').textContent = '計測を停止しました。「リセット」でクリアできます';
+  }
+}
 
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        function animate() {
-            renderer.setAnimationLoop(render);
-        }
-
-        function render() {
-            if (renderer.xr.isPresenting) {
-                const session = renderer.xr.getSession();
-                if (session) {
-                    const frame = renderer.xr.getFrame();
-                    if (frame) {
-                        const viewerPose = frame.getViewerPose(session.referenceSpace);
-                        if (viewerPose) {
-                            const currentCameraPosition = viewerPose.transform.position;
-
-                            // 初回またはセッション開始時
-                            if (lastCameraPosition.x === 0 && lastCameraPosition.y === 0 && lastCameraPosition.z === 0) {
-                                lastCameraPosition.copy(currentCameraPosition);
-                            } else {
-                                // 水平方向の移動距離を計算 (Y軸は無視)
-                                const dx = currentCameraPosition.x - lastCameraPosition.x;
-                                const dz = currentCameraPosition.z - lastCameraPosition.z;
-                                const horizontalDistance = Math.sqrt(dx * dx + dz * dz);
-
-                                totalHorizontalDistance += horizontalDistance;
-                                distanceDisplay.textContent = `移動距離: ${totalHorizontalDistance.toFixed(2)} m`;
-
-                                lastCameraPosition.copy(currentCameraPosition);
-                            }
-                        }
-                    }
-                }
-            }
-            renderer.render(scene, camera);
-        }
-    </script>
+function resetAll() {
+  velX = 0; posX = 0; totalDist = 0; prevPosX = 0; rawAcc = 0;
+  pathPoints.length = 0; updateUI();
+  document.getElementById('hintText').textContent = running
+    ? 'iPhoneを水平に持ち、左右にゆっくり動かしてください'
+    : '「計測開始」をタップしてセンサーを起動してください';
+}
+</script>
 </body>
 </html>
