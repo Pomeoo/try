@@ -5,77 +5,69 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>Virtual Cane | バーチャル杖</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; touch-action: none; -webkit-tap-highlight-color: transparent; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #06090e; }
-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: block; }
+* { margin:0; padding:0; box-sizing:border-box; touch-action:none; -webkit-tap-highlight-color:transparent; }
+html, body { width:100%; height:100%; overflow:hidden; background:#05080d; }
+canvas { position:fixed; top:0; left:0; width:100%; height:100%; display:block; }
 
 #overlay {
-  position: fixed; inset: 0; z-index: 100;
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
-  background: rgba(6, 9, 14, 0.97);
-  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif;
+  position:fixed; inset:0; z-index:100;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+  background:rgba(5,8,13,0.97);
+  font-family:-apple-system,BlinkMacSystemFont,'Helvetica Neue',sans-serif;
 }
-#overlay h1 {
-  color: rgba(255,255,255,0.9); font-size: 24px; font-weight: 400; letter-spacing: 2px;
-  text-transform: uppercase;
-}
-#overlay .subtitle { color: rgba(255,255,255,0.35); font-size: 12px; letter-spacing: 1px; }
+#overlay .kana { color:rgba(255,255,255,0.25); font-size:11px; letter-spacing:3px; text-transform:uppercase; }
+#overlay h1   { color:rgba(255,255,255,0.88); font-size:22px; font-weight:400; letter-spacing:2px; }
 #overlay .desc {
-  color: rgba(255,255,255,0.5); font-size: 13px; text-align: center;
-  max-width: 300px; line-height: 1.8; margin: 8px 0 16px;
+  color:rgba(255,255,255,0.42); font-size:13px; text-align:center;
+  max-width:290px; line-height:1.85; margin:6px 0 14px;
 }
 #start-btn {
-  padding: 13px 40px;
-  background: transparent;
-  border: 1px solid rgba(255,255,255,0.25);
-  border-radius: 40px;
-  color: rgba(255,255,255,0.8);
-  font-size: 14px; letter-spacing: 1px;
-  cursor: pointer; text-transform: uppercase;
-  transition: border-color 0.2s, background 0.2s;
+  padding:12px 38px; background:transparent;
+  border:1px solid rgba(255,255,255,0.22); border-radius:40px;
+  color:rgba(255,255,255,0.75); font-size:13px; letter-spacing:1.5px;
+  cursor:pointer; text-transform:uppercase;
 }
-#start-btn:hover { border-color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.05); }
-#start-btn:active { background: rgba(255,255,255,0.1); }
-.key-hint { color: rgba(255,255,255,0.2); font-size: 11px; letter-spacing: 0.5px; }
+#start-btn:active { background:rgba(255,255,255,0.07); }
+.key-hint { color:rgba(255,255,255,0.18); font-size:11px; letter-spacing:0.5px; }
 
 #hud {
-  position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
-  display: flex; gap: 20px; align-items: center;
-  font-family: 'SF Mono', 'Courier New', monospace;
-  font-size: 10px; color: rgba(255,255,255,0.2);
-  pointer-events: none; z-index: 10; letter-spacing: 0.5px;
-  white-space: nowrap;
+  position:fixed; bottom:26px; left:50%; transform:translateX(-50%);
+  display:flex; gap:18px; align-items:center;
+  font-family:'SF Mono','Courier New',monospace; font-size:10px;
+  color:rgba(255,255,255,0.22); pointer-events:none; z-index:10;
+  letter-spacing:0.5px; white-space:nowrap;
 }
-#hud .sep { color: rgba(255,255,255,0.1); }
+#hud .sep { color:rgba(255,255,255,0.1); }
 
 #toast {
-  position: fixed; top: 38%; left: 50%; transform: translate(-50%, -50%);
-  background: rgba(6,9,14,0.9);
-  border: 1px solid rgba(255,255,255,0.1);
-  border-radius: 10px; padding: 10px 22px;
-  font-family: -apple-system, sans-serif;
-  font-size: 14px; font-weight: 500; letter-spacing: 0.5px;
-  color: white; opacity: 0;
-  transition: opacity 0.25s;
-  pointer-events: none; z-index: 50; white-space: nowrap;
+  position:fixed; top:36%; left:50%; transform:translate(-50%,-50%);
+  background:rgba(5,8,13,0.92); border:1px solid rgba(255,255,255,0.1);
+  border-radius:10px; padding:9px 20px;
+  font-family:-apple-system,sans-serif; font-size:13px; font-weight:500;
+  letter-spacing:0.5px; color:white; opacity:0;
+  transition:opacity 0.2s; pointer-events:none; z-index:50; white-space:nowrap;
+}
+#acc-note {
+  position:fixed; top:36px; left:50%; transform:translateX(-50%);
+  font-family:-apple-system,sans-serif; font-size:10px;
+  color:rgba(255,255,255,0.18); pointer-events:none; z-index:10;
+  letter-spacing:0.3px; white-space:nowrap;
 }
 </style>
 </head>
 <body>
-
 <canvas id="c"></canvas>
 
 <div id="overlay">
-  <div class="subtitle">prototype</div>
+  <div class="kana">prototype</div>
   <h1>Virtual Cane</h1>
   <p class="desc">
-    デバイスを水平に動かして<br>
+    デバイスを水平にスライドして<br>
     見えない物体を探索してください<br>
-    杖先が物体にぶつかると<br>
-    質感に応じて反応します
+    杖は剛体として反応します
   </p>
   <button id="start-btn">開始する</button>
-  <div class="key-hint">PCでは ← → キーで操作可能</div>
+  <div class="key-hint">PCは ← → キーで操作可能</div>
 </div>
 
 <div id="hud">
@@ -83,366 +75,329 @@ canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; display: b
   <span class="sep">|</span>
   <span id="hud-mat">—</span>
 </div>
-
 <div id="toast"></div>
+<div id="acc-note">位置は相対移動量です（ドリフトあり）</div>
 
 <script>
-// ══════════════════════════════════════════════
-//  CANVAS SETUP
-// ══════════════════════════════════════════════
+// ════════════════════════════════════════════════
+//  CANVAS
+// ════════════════════════════════════════════════
 const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
+const ctx    = canvas.getContext('2d');
 let W, H;
-function resize() { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
+function resize(){ W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; }
 resize();
 window.addEventListener('resize', resize);
 
-// ══════════════════════════════════════════════
-//  STATE
-// ══════════════════════════════════════════════
-let started = false;
-let vx = 0;           // virtual x position (cm)
-let vel = 0;          // velocity (cm/s)
-let lastT = null;
+// ════════════════════════════════════════════════
+//  VIRTUAL POSITION
+//  ─ 加速度センサーの2重積分では絶対位置は取れない ─
+//  対策: ZUPT (Zero Velocity Update) + Dead zone
+//    ・静止検出時に速度を強制減衰 → ドリフト抑制
+//    ・デッドゾーン: 閾値未満の加速度は無視
+// ════════════════════════════════════════════════
+let started  = false;
+let vx       = 0;   // virtual x position (cm)
+let vel      = 0;   // virtual velocity   (cm/s)
+let lastT    = null;
 
-let tipOff = 0;       // cane tip x offset (px)  
-let tipVel = 0;       // tip velocity
-let inContact = false;
-let contactMat = null;
+const DEADZONE       = 0.25;  // m/s²
+const ZUPT_THRESHOLD = 0.032; // variance threshold (= 0.18² ≈ 0.032)
+const ZUPT_WIN       = 10;
+const accBuf         = [];
 
-// ══════════════════════════════════════════════
-//  OBJECTS & MATERIALS
-// ══════════════════════════════════════════════
-const CONTACT_WIDTH = 7; // cm — contact zone depth per object
+function processAccel(rawAx, dt){
+  const ax = (Math.abs(rawAx) < DEADZONE) ? 0 : rawAx;
+  accBuf.push(ax * ax);
+  if(accBuf.length > ZUPT_WIN) accBuf.shift();
+  const variance = accBuf.reduce((s,v)=>s+v,0) / accBuf.length;
 
-const objects = [
-  { pos: 20,  mat: 'wood'   },
-  { pos: 42,  mat: 'fabric' },
-  { pos: 63,  mat: 'glass'  },
-  { pos: 84,  mat: 'metal'  },
-  { pos: 105, mat: 'rubber' },
-];
+  if(variance < ZUPT_THRESHOLD){
+    vel *= Math.pow(0.55, dt*60);
+    if(Math.abs(vel) < 0.04) vel = 0;
+  } else {
+    vel += ax * dt * 52;
+    vel *= Math.pow(0.93, dt*60);
+  }
+  vx = Math.max(0, vx + vel * dt);
+}
 
-/*
-  k  = spring stiffness (higher = harder/stiffer surface)
-  c  = damping coefficient (higher = settles faster, less oscillation)
-  maxD = max tip deflection in pixels
-  vib  = vibration pattern (Vibration API)
-*/
+// ════════════════════════════════════════════════
+//  RIGID CANE PHYSICS
+//
+//  杖 = 剛体の棒。曲がらない。
+//  持ち手（画面下部）を軸に杖全体が角度θで回転する。
+//
+//  角度の運動方程式（バネ–ダンパー）:
+//    θ'' = k·(θ_target − θ) − c·θ'
+//    k = 表面の硬さ（高いほど高周波振動）
+//    c = エネルギー吸収（高いほど振動しない）
+//
+//  素材ごとの現実的な反応:
+//    ガラス → ほぼ動かない・高周波で長く振動（コツン）
+//    金属   → ほぼ動かない・最も長く振動（キーン）
+//    木材   → はっきり動く・1〜2回跳ね返って落ち着く
+//    ゴム   → 大きく曲がる・数回バウンド
+//    布     → ゆっくり沈み込む・全く跳ね返らない
+// ════════════════════════════════════════════════
+let caneAngle  = 0;   // rad from vertical (neg=tip left, pos=tip right)
+let caneAngVel = 0;   // rad/s
+
 const MATS = {
-  wood:   { jp: '木材', en: 'Wood',   col: '#c87c3a', k: 680,  c: 16,  maxD: 30, vib: [30, 10, 20]                },
-  fabric: { jp: '布',   en: 'Fabric', col: '#9b6ec8', k: 110,  c: 58,  maxD: 58, vib: [6, 6, 6, 6, 6, 6]         },
-  glass:  { jp: 'ガラス',en: 'Glass', col: '#63b8e8', k: 1500, c: 3.5, maxD: 10, vib: [12, 4, 10, 4, 12, 4, 8]   },
-  metal:  { jp: '金属', en: 'Metal',  col: '#a8bfc9', k: 2400, c: 2.0, maxD: 7,  vib: [60, 12, 40, 12, 50]       },
-  rubber: { jp: 'ゴム', en: 'Rubber', col: '#e04848', k: 360,  c: 10,  maxD: 75, vib: [18, 8, 36, 8, 24]         },
+  glass:  { jp:'ガラス', en:'Glass',  col:'#63b8e8', maxAngle:0.05, k:580, c:2.2,  vib:[12,4,10,4,12,4,8,4,10] },
+  metal:  { jp:'金属',   en:'Metal',  col:'#a8bfc9', maxAngle:0.04, k:820, c:1.4,  vib:[60,12,40,12,50,10,35]   },
+  wood:   { jp:'木材',   en:'Wood',   col:'#c87c3a', maxAngle:0.14, k:310, c:18,   vib:[30,10,20]                },
+  rubber: { jp:'ゴム',   en:'Rubber', col:'#e04848', maxAngle:0.22, k:210, c:7,    vib:[18,8,36,8,24]            },
+  fabric: { jp:'布',     en:'Fabric', col:'#9b6ec8', maxAngle:0.20, k:75,  c:62,   vib:[6,6,6,6,6,6]             },
 };
 
-// ══════════════════════════════════════════════
+const OBJ_DEPTH = 6;
+const objects = [
+  { pos:20,  mat:'wood'   },
+  { pos:40,  mat:'glass'  },
+  { pos:60,  mat:'metal'  },
+  { pos:80,  mat:'rubber' },
+  { pos:100, mat:'fabric' },
+];
+
+let inContact  = false;
+let contactMat = null;
+
+// ════════════════════════════════════════════════
 //  TOAST
-// ══════════════════════════════════════════════
+// ════════════════════════════════════════════════
 const toastEl = document.getElementById('toast');
 let toastTid;
-function showToast(mat) {
+function showToast(mat){
   const m = MATS[mat];
   toastEl.textContent = m.jp + '  ' + m.en;
   toastEl.style.color = m.col;
   toastEl.style.borderColor = m.col + '55';
   toastEl.style.opacity = '1';
   clearTimeout(toastTid);
-  toastTid = setTimeout(() => { toastEl.style.opacity = '0'; }, 1800);
+  toastTid = setTimeout(()=>{ toastEl.style.opacity='0'; }, 2000);
 }
 
-// ══════════════════════════════════════════════
-//  START
-// ══════════════════════════════════════════════
-document.getElementById('start-btn').addEventListener('click', async () => {
-  if (typeof DeviceMotionEvent !== 'undefined' &&
-      typeof DeviceMotionEvent.requestPermission === 'function') {
-    try {
+// ════════════════════════════════════════════════
+//  INPUT
+// ════════════════════════════════════════════════
+document.getElementById('start-btn').addEventListener('click', async ()=>{
+  if(typeof DeviceMotionEvent !== 'undefined' &&
+     typeof DeviceMotionEvent.requestPermission === 'function'){
+    try{
       const p = await DeviceMotionEvent.requestPermission();
-      if (p !== 'granted') { alert('モーションセンサーの許可が必要です'); return; }
-    } catch (e) { /* fall through to keyboard mode */ }
+      if(p !== 'granted'){ alert('モーションセンサーの許可が必要です'); return; }
+    } catch(e){}
   }
   started = true;
   document.getElementById('overlay').style.display = 'none';
-  window.addEventListener('devicemotion', onMotion, { passive: true });
+  window.addEventListener('devicemotion', onMotion, {passive:true});
 });
 
-// ══════════════════════════════════════════════
-//  DEVICE MOTION
-// ══════════════════════════════════════════════
-function onMotion(e) {
+function onMotion(e){
   const ag = e.accelerationIncludingGravity;
-  if (!ag) return;
+  if(!ag) return;
   const now = performance.now();
-  if (lastT === null) { lastT = now; return; }
-  const dt = Math.min((now - lastT) / 1000, 0.05);
+  if(lastT === null){ lastT = now; return; }
+  const dt = Math.min((now - lastT)/1000, 0.05);
   lastT = now;
-
-  // x-axis = left / right when device held portrait
-  const ax = ag.x || 0;
-  vel += ax * dt * 55;
-  vel *= Math.pow(0.90, dt * 60);  // friction
-  vx = Math.max(0, vx + vel * dt);
+  processAccel(ag.x || 0, dt);
 }
 
-// ══════════════════════════════════════════════
-//  KEYBOARD FALLBACK (desktop)
-// ══════════════════════════════════════════════
 const keys = {};
-window.addEventListener('keydown', e => {
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-    e.preventDefault(); keys[e.key] = true;
-    if (!started) {
-      started = true;
-      document.getElementById('overlay').style.display = 'none';
-    }
+window.addEventListener('keydown', e=>{
+  if(e.key==='ArrowLeft'||e.key==='ArrowRight'){
+    e.preventDefault(); keys[e.key]=true;
+    if(!started){ started=true; document.getElementById('overlay').style.display='none'; }
   }
 });
-window.addEventListener('keyup', e => { keys[e.key] = false; });
+window.addEventListener('keyup', e=>{ keys[e.key]=false; });
 
-function applyKeyboard(dt) {
-  if (!started) return;
-  const spd = 22;
-  if (keys['ArrowRight']) vel = Math.min(vel + spd * dt * 60 * 0.12, 60);
-  else if (keys['ArrowLeft']) vel = Math.max(vel - spd * dt * 60 * 0.12, -60);
-  else vel *= Math.pow(0.82, dt * 60);
+function applyKeyboard(dt){
+  if(!started) return;
+  if(keys['ArrowRight'])      vel = Math.min(vel + 18*dt*60*0.10, 55);
+  else if(keys['ArrowLeft'])  vel = Math.max(vel - 18*dt*60*0.10, -55);
+  else                        vel *= Math.pow(0.80, dt*60);
   vx = Math.max(0, vx + vel * dt);
 }
 
-// ══════════════════════════════════════════════
-//  PHYSICS
-// ══════════════════════════════════════════════
-function physicsStep(dt) {
-  // ── Collision detection ──
+// ════════════════════════════════════════════════
+//  PHYSICS STEP
+// ════════════════════════════════════════════════
+function physicsStep(dt){
   let hit = null;
-  for (const obj of objects) {
+  for(const obj of objects){
     const d = vx - obj.pos;
-    if (d >= 0 && d < CONTACT_WIDTH) { hit = { obj, d }; break; }
+    if(d >= 0 && d < OBJ_DEPTH){ hit = {obj, d}; break; }
   }
 
-  if (hit && !inContact) {
-    // First contact
-    inContact = true;
+  if(hit && !inContact){
+    inContact  = true;
     contactMat = hit.obj.mat;
-    // Initial impulse: speed-based, capped per material
-    const m = MATS[contactMat];
-    const impactVel = Math.min(Math.abs(vel), 40) + 5;
-    tipVel = -impactVel * (m.maxD / 35);
-    if (navigator.vibrate) navigator.vibrate(m.vib);
+    const m    = MATS[contactMat];
+    const impactSpeed = Math.min(Math.abs(vel), 50) + 4;
+    // 衝突: 移動方向と逆向きの角速度衝撃
+    caneAngVel = -(impactSpeed / 50) * m.maxAngle * 28;
+    if(navigator.vibrate) navigator.vibrate(m.vib);
     showToast(contactMat);
     document.getElementById('hud-mat').textContent = m.jp;
-  } else if (!hit && inContact) {
-    inContact = false;
+  } else if(!hit && inContact){
+    inContact  = false;
     contactMat = null;
     document.getElementById('hud-mat').textContent = '—';
   }
 
-  if (inContact) {
-    const m = MATS[contactMat];
-    const depth = hit.d / CONTACT_WIDTH;          // 0..1
-    const target = -(depth * m.maxD);             // pushed backward
-    const spring  = (target - tipOff) * m.k * 0.001;
-    const damping = -tipVel * m.c * 0.1;
-    tipVel += (spring + damping) * dt * 60;
+  // Angular spring–damper
+  let angAcc;
+  if(inContact){
+    const m           = MATS[contactMat];
+    const penetration = hit.d / OBJ_DEPTH;
+    const theta_t     = -penetration * m.maxAngle;
+    angAcc = m.k * (theta_t - caneAngle) - m.c * caneAngVel;
   } else {
-    // Return to centre with spring
-    const spring  = -tipOff * 420 * 0.001;
-    const damping = -tipVel * 22 * 0.1;
-    tipVel += (spring + damping) * dt * 60;
+    // 自由復帰（垂直に戻る）
+    angAcc = -380 * caneAngle - 18 * caneAngVel;
   }
 
-  tipOff += tipVel * dt * 60 * 0.28;
-  tipOff = Math.max(-130, Math.min(130, tipOff));
+  caneAngVel  += angAcc * dt;
+  caneAngle   += caneAngVel * dt;
+  caneAngle    = Math.max(-0.38, Math.min(0.38, caneAngle));
 }
 
-// ══════════════════════════════════════════════
-//  DRAW HELPERS
-// ══════════════════════════════════════════════
-function drawBackground() {
-  ctx.fillStyle = '#06090e';
-  ctx.fillRect(0, 0, W, H);
+// ════════════════════════════════════════════════
+//  DRAW
+// ════════════════════════════════════════════════
+function drawBg(){
+  ctx.fillStyle = '#05080d';
+  ctx.fillRect(0,0,W,H);
 }
 
-function drawObjectHints() {
-  const MAX_RANGE = 130;
-  for (const obj of objects) {
-    const rel = obj.pos - vx;       // positive = ahead
-    if (rel < -5 || rel > 40) continue;
-    const m = MATS[obj.mat];
-    const alpha = Math.max(0, 1 - rel / 40) * 0.1;
-    const sx = W / 2 + rel * 7;    // rough screen projection
+function drawRadar(){
+  const rx=20, ry=18, rw=W-40, rh=3, MAX=120;
+  ctx.fillStyle='rgba(255,255,255,0.05)';
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(rx,ry,rw,rh,2); else ctx.rect(rx,ry,rw,rh);
+  ctx.fill();
+  for(const obj of objects){
+    const m=MATS[obj.mat], sx=rx+(obj.pos/MAX)*rw, active=contactMat===obj.mat;
+    if(active){
+      ctx.save(); ctx.globalAlpha=0.22; ctx.fillStyle=m.col;
+      ctx.beginPath(); ctx.arc(sx,ry+rh/2,9,0,Math.PI*2); ctx.fill(); ctx.restore();
+    }
+    ctx.fillStyle = active ? m.col : m.col+'60';
+    ctx.beginPath(); ctx.arc(sx,ry+rh/2,active?4:2.5,0,Math.PI*2); ctx.fill();
+  }
+  const px=rx+Math.min(vx/MAX,1)*rw;
+  ctx.fillStyle='rgba(255,255,255,0.7)';
+  ctx.beginPath(); ctx.arc(px,ry+rh/2,2.5,0,Math.PI*2); ctx.fill();
+}
 
-    // Vertical glow band
-    const g = ctx.createLinearGradient(sx - 22, 0, sx + 22, 0);
-    g.addColorStop(0, 'transparent');
-    g.addColorStop(0.5, m.col + Math.round(alpha * 255).toString(16).padStart(2,'0'));
-    g.addColorStop(1, 'transparent');
-    ctx.fillStyle = g;
-    ctx.fillRect(sx - 22, 0, 44, H);
-
-    // Text hint when close (5–35 cm away)
-    if (rel > 0 && rel < 28) {
-      const ta = Math.min(1, (1 - rel / 28)) * 0.55;
-      ctx.save();
-      ctx.globalAlpha = ta;
-      ctx.fillStyle = m.col;
-      ctx.font = '500 13px -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(m.jp + '  ' + m.en, sx, H * 0.45);
-      ctx.font = '400 11px -apple-system, sans-serif';
-      ctx.fillStyle = 'rgba(255,255,255,0.4)';
-      ctx.fillText(Math.round(rel) + ' cm 先', sx, H * 0.45 + 18);
+function drawObjectHints(){
+  for(const obj of objects){
+    const rel=obj.pos-vx;
+    if(rel<-5||rel>38) continue;
+    const m=MATS[obj.mat], sx=W/2+rel*7;
+    const a=Math.max(0,1-rel/38)*0.09;
+    const g=ctx.createLinearGradient(sx-24,0,sx+24,0);
+    g.addColorStop(0,'transparent');
+    g.addColorStop(0.5, m.col+Math.round(a*255).toString(16).padStart(2,'0'));
+    g.addColorStop(1,'transparent');
+    ctx.fillStyle=g; ctx.fillRect(sx-24,0,48,H);
+    if(rel>0&&rel<30){
+      const ta=Math.min(1,(1-rel/30))*0.5;
+      ctx.save(); ctx.globalAlpha=ta;
+      ctx.fillStyle=m.col; ctx.font='500 12px -apple-system,sans-serif'; ctx.textAlign='center';
+      ctx.fillText(m.jp+'  '+m.en, sx, H*0.44);
+      ctx.font='400 11px -apple-system,sans-serif'; ctx.fillStyle='rgba(255,255,255,0.35)';
+      ctx.fillText(Math.round(rel)+' cm 先', sx, H*0.44+17);
       ctx.restore();
     }
   }
 }
 
-function drawRadar() {
-  const rx = 20, ry = 16, rw = W - 40, rh = 3;
-  const MAX = 130;
+function drawCane(t){
+  const pivotX  = W/2;
+  const pivotY  = H-55;
+  const caneLen = H-80;   // 画面いっぱいの長さ
 
-  ctx.fillStyle = 'rgba(255,255,255,0.06)';
-  ctx.beginPath();
-  if (ctx.roundRect) ctx.roundRect(rx, ry, rw, rh, 2);
-  else ctx.rect(rx, ry, rw, rh);
-  ctx.fill();
+  // 直線の杖: ピボット(持ち手)を軸に角度θで回転
+  const tipX = pivotX + Math.sin(caneAngle) * caneLen;
+  const tipY = pivotY - Math.cos(caneAngle) * caneLen;
 
-  for (const obj of objects) {
-    const sx = rx + (obj.pos / MAX) * rw;
-    const m = MATS[obj.mat];
-    const active = contactMat === obj.mat;
-    ctx.fillStyle = active ? m.col : m.col + '70';
-    ctx.beginPath();
-    ctx.arc(sx, ry + rh / 2, active ? 4 : 2.5, 0, Math.PI * 2);
-    ctx.fill();
-    if (active) {
-      ctx.save();
-      ctx.globalAlpha = 0.3;
-      ctx.fillStyle = m.col;
-      ctx.beginPath();
-      ctx.arc(sx, ry + rh / 2, 8, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    }
-  }
-
-  const px = rx + Math.min(vx / MAX, 1) * rw;
-  ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.beginPath();
-  ctx.arc(px, ry + rh / 2, 2.5, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-function drawCane(t) {
-  const cx  = W / 2;
-  const hY  = H - 55;   // handle y (bottom)
-  const tY  = 30;        // tip y (top)
-  const tX  = cx + tipOff;
-
-  // Bezier control points — shaft bends between handle and tip
-  const cp1x = cx + tipOff * 0.08;
-  const cp1y = hY - (hY - tY) * 0.32;
-  const cp2x = cx + tipOff * 0.55;
-  const cp2y = hY - (hY - tY) * 0.72;
-
-  // ── Glow when in contact ──
-  if (inContact && contactMat) {
-    const m = MATS[contactMat];
-    const intensity = Math.min(Math.abs(tipOff) / m.maxD, 1);
+  // 接触時のグロー
+  if(inContact && contactMat){
+    const m=MATS[contactMat];
+    const intensity=Math.min(Math.abs(caneAngle)/(m.maxAngle*0.8),1);
     ctx.save();
-    ctx.globalAlpha = 0.18 * intensity;
-    ctx.strokeStyle = m.col;
-    ctx.lineWidth = 18;
-    ctx.lineCap = 'round';
-    ctx.filter = 'blur(5px)';
-    ctx.beginPath();
-    ctx.moveTo(cx, hY);
-    ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, tX, tY);
-    ctx.stroke();
+    ctx.globalAlpha=0.14*intensity;
+    ctx.strokeStyle=m.col; ctx.lineWidth=16; ctx.lineCap='round';
+    ctx.shadowColor=m.col; ctx.shadowBlur=12;
+    ctx.beginPath(); ctx.moveTo(pivotX,pivotY); ctx.lineTo(tipX,tipY); ctx.stroke();
     ctx.restore();
   }
 
-  // ── Shaft (2 px) ──
-  ctx.save();
-  ctx.lineWidth = 2;
-  ctx.lineCap = 'round';
-  const grad = ctx.createLinearGradient(cx, hY, tX, tY);
-  if (inContact && contactMat) {
-    const m = MATS[contactMat];
-    grad.addColorStop(0,   '#d4a055');
-    grad.addColorStop(0.75,'rgba(255,255,255,0.88)');
-    grad.addColorStop(1,    m.col);
+  // ── 杖本体: 2px 直線 ──
+  const grad=ctx.createLinearGradient(pivotX,pivotY,tipX,tipY);
+  if(inContact && contactMat){
+    const m=MATS[contactMat];
+    grad.addColorStop(0,'#d4a055'); grad.addColorStop(0.8,'rgba(255,255,255,0.9)'); grad.addColorStop(1,m.col);
   } else {
-    grad.addColorStop(0,   '#c8995a');
-    grad.addColorStop(0.8, 'rgba(255,255,255,0.82)');
-    grad.addColorStop(1,   'rgba(255,255,255,0.45)');
+    grad.addColorStop(0,'#c89550'); grad.addColorStop(0.82,'rgba(255,255,255,0.82)'); grad.addColorStop(1,'rgba(255,255,255,0.4)');
   }
-  ctx.strokeStyle = grad;
-  ctx.beginPath();
-  ctx.moveTo(cx, hY);
-  ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, tX, tY);
-  ctx.stroke();
-  ctx.restore();
-
-  // ── Handle (bottom) ──
   ctx.save();
-  ctx.fillStyle = '#c8995a';
-  ctx.beginPath();
-  ctx.arc(cx, hY, 8, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.strokeStyle=grad; ctx.lineWidth=2; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(pivotX,pivotY); ctx.lineTo(tipX,tipY); ctx.stroke();
   ctx.restore();
 
-  // ── Tip (top) ──
-  const tipR = inContact ? 3.5 : 3;
-  ctx.save();
-  ctx.fillStyle = inContact && contactMat ? MATS[contactMat].col : 'rgba(255,255,255,0.8)';
-  ctx.shadowColor = ctx.fillStyle;
-  ctx.shadowBlur = inContact ? 8 : 0;
-  ctx.beginPath();
-  ctx.arc(tX, tY, tipR, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
+  // 持ち手
+  ctx.save(); ctx.fillStyle='#c89550';
+  ctx.beginPath(); ctx.arc(pivotX,pivotY,7,0,Math.PI*2); ctx.fill(); ctx.restore();
 
-  // ── Ripple rings when hitting ──
-  if (inContact && contactMat && Math.abs(tipOff) > 3) {
-    const m = MATS[contactMat];
-    const intensity = Math.min(Math.abs(tipOff) / m.maxD, 1);
-    const phase = (t * 0.0025) % 1;
-    for (let i = 0; i < 3; i++) {
-      const p = (phase + i / 3) % 1;
-      const r = 5 + p * 36;
-      ctx.save();
-      ctx.globalAlpha = (1 - p) * 0.55 * intensity;
-      ctx.strokeStyle = m.col;
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.arc(tX, tY, r, 0, Math.PI * 2);
-      ctx.stroke();
+  // 杖先
+  const tipCol=(inContact&&contactMat)?MATS[contactMat].col:'rgba(255,255,255,0.8)';
+  ctx.save(); ctx.fillStyle=tipCol; ctx.shadowColor=tipCol; ctx.shadowBlur=inContact?10:0;
+  ctx.beginPath(); ctx.arc(tipX,tipY,3.5,0,Math.PI*2); ctx.fill(); ctx.restore();
+
+  // 杖先の波紋
+  if(inContact&&contactMat&&Math.abs(caneAngle)>0.006){
+    const m=MATS[contactMat];
+    const intensity=Math.min(Math.abs(caneAngle)/m.maxAngle,1);
+    const phase=(t*0.0022)%1;
+    for(let i=0;i<3;i++){
+      const p=(phase+i/3)%1, r=5+p*32;
+      ctx.save(); ctx.globalAlpha=(1-p)*0.5*intensity;
+      ctx.strokeStyle=m.col; ctx.lineWidth=1.2;
+      ctx.beginPath(); ctx.arc(tipX,tipY,r,0,Math.PI*2); ctx.stroke(); ctx.restore();
+    }
+  }
+
+  // ガラス・金属: 高周波振動をモーションブラーで表現
+  if(inContact&&(contactMat==='glass'||contactMat==='metal')&&Math.abs(caneAngVel)>0.015){
+    const m=MATS[contactMat];
+    for(let b=1;b<=3;b++){
+      const ga=caneAngle-caneAngVel*b*0.012;
+      const gx=pivotX+Math.sin(ga)*caneLen, gy=pivotY-Math.cos(ga)*caneLen;
+      ctx.save(); ctx.globalAlpha=0.12/b;
+      ctx.strokeStyle=m.col; ctx.lineWidth=2; ctx.lineCap='round';
+      ctx.beginPath(); ctx.moveTo(pivotX,pivotY); ctx.lineTo(gx,gy); ctx.stroke();
       ctx.restore();
     }
   }
 }
 
-// ══════════════════════════════════════════════
+// ════════════════════════════════════════════════
 //  MAIN LOOP
-// ══════════════════════════════════════════════
-let prev = 0;
-function loop(t) {
-  const dt = Math.min((t - prev) / 1000, 0.05);
-  prev = t;
+// ════════════════════════════════════════════════
+let prev=0;
+function loop(t){
+  const dt=Math.min((t-prev)/1000,0.05); prev=t;
   requestAnimationFrame(loop);
-
   applyKeyboard(dt);
-  if (started) {
+  if(started){
     physicsStep(dt);
-    document.getElementById('hud-pos').textContent = vx.toFixed(1) + ' cm';
+    document.getElementById('hud-pos').textContent=vx.toFixed(1)+' cm';
   }
-
-  drawBackground();
-  drawObjectHints();
-  drawRadar();
-  drawCane(t);
+  drawBg(); drawObjectHints(); drawRadar(); drawCane(t);
 }
 requestAnimationFrame(loop);
 </script>
