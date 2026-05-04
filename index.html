@@ -7,270 +7,143 @@
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body {
-  width:100%; height:100%;
-  overflow:hidden;
-  background:#000;
+  width:100%; height:100%; overflow:hidden;
+  background:#fff;
+  -webkit-user-select:none; user-select:none;
   touch-action:none;
-  -webkit-user-select:none;
-  user-select:none;
 }
 canvas { display:block; }
 
-#statusDot {
-  position:fixed; top:18px; right:18px;
-  display:flex; align-items:center; gap:7px;
-  font-family:-apple-system, monospace;
-  font-size:11px; letter-spacing:0.06em;
-  color:rgba(255,255,255,0.3);
+#statusBar {
+  position:fixed; top:0; left:0; right:0;
+  padding:14px 20px;
+  display:flex; align-items:center; gap:8px;
   pointer-events:none;
-  z-index:10;
 }
 #dot {
   width:7px; height:7px; border-radius:50%;
-  background:rgba(255,255,255,0.15);
+  background:rgba(0,0,0,0.12);
   flex-shrink:0;
+  transition: background 0.3s;
 }
-#statusText { transition: color 0.3s; }
+#statusText {
+  font-family:-apple-system, sans-serif;
+  font-size:11px; letter-spacing:0.07em;
+  color:rgba(0,0,0,0.28);
+  transition: color 0.3s;
+}
 
 #startBtn {
   position:fixed; bottom:52px; left:50%;
   transform:translateX(-50%);
   padding:15px 52px;
-  border:1px solid rgba(255,255,255,0.18);
+  border:1px solid rgba(0,0,0,0.14);
   border-radius:100px;
-  background:rgba(255,255,255,0.04);
-  color:rgba(255,255,255,0.85);
+  background:rgba(0,0,0,0.03);
+  color:rgba(0,0,0,0.55);
   font-family:-apple-system, sans-serif;
-  font-size:15px; letter-spacing:0.1em;
+  font-size:15px; letter-spacing:0.06em;
   cursor:pointer;
-  z-index:10;
-  -webkit-backdrop-filter:blur(12px);
-  backdrop-filter:blur(12px);
 }
-#startBtn:active { opacity:0.6; }
+#startBtn:active { opacity:0.5; }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div id="statusDot"><span id="dot"></span><span id="statusText">待機中</span></div>
+<div id="statusBar">
+  <span id="dot"></span>
+  <span id="statusText">待機中</span>
+</div>
 <button id="startBtn" onclick="startSensor()">計測開始</button>
 
 <script>
 const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d');
-let W, H, DPR;
+const ctx    = canvas.getContext('2d');
+let W, H;
 
 function resize() {
-  DPR = window.devicePixelRatio || 1;
+  const dpr = window.devicePixelRatio || 1;
   W = window.innerWidth;
   H = window.innerHeight;
-  canvas.width  = W * DPR;
-  canvas.height = H * DPR;
-  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 resize();
 window.addEventListener('resize', resize);
 
-// ── 物理 ──────────────────────────────────────────────
-let posX = 0;          // 移動距離(m) 右方向のみ
-let velX = 0;
-let lastTime = null;
-let running = false;
-const STILL_THR  = 0.09;   // 静止閾値 m/s²
-const VEL_DAMP   = 0.80;   // 静止時ダンピング
+// ── センサー物理 ──────────────────────────────────────
+let posX      = 0;      // 右方向移動距離 (m)
+let velX      = 0;
+let lastT     = null;
+let running   = false;
+const STILL   = 0.09;   // 静止閾値 m/s²
+const VEL_DAMP = 0.80;
 
-// ── ワールド定数 ──────────────────────────────────────
-const SCALE      = 3200;   // px/m → 32px/cm
-const CATCH_X    = 0.030;  // 3cm: 引っかかり物体
-const WALL_X     = 0.060;  // 6cm: でこぼこ壁
-const WALL_CAP   = WALL_X + 0.004; // 壁への最大進入量
+const CATCH_X = 0.030;  // 3cm : 引っかかり
+const WALL_X  = 0.060;  // 6cm : ざらざら壁
 
-// ── 杖アニメーション変数 ─────────────────────────────
-let caneOff   = 0;    // 中心からの水平オフセット(px)
+// ── 杖アニメーション ──────────────────────────────────
+// caneAngle: 垂直からの傾き (ラジアン)
+// + = 右傾き, - = 左傾き
+let caneAngle  = 0;
+
+// 状態
 let catchFired = false;
-let catchT    = 0;
-let wallMode  = false;
-let sparks    = [];   // [{x,y,alpha,r}] カツカツ火花
+let catchT     = 0;     // 引っかかり発生時刻 (ms)
+let wallMode   = false;
 
-// ── 壁の凹凸プロフィール ──────────────────────────────
-// 矩形の凸凹を繰り返す
-function bumpAt(y) {
-  const seg = Math.floor(y / 22) % 4;
-  if (seg === 1) return 14;
-  if (seg === 3) return 7;
-  return 0;
-}
+// ── 杖の描画 ─────────────────────────────────────────
+// 画面中央を通り、angle だけ傾いた全高ライン
+function drawCane(angle) {
+  const cx   = W / 2;
+  const half = H / 2;
+  const sa   = Math.sin(angle);
+  const ca   = Math.cos(angle);
+  // 中心を軸に回転した上端・下端
+  const x1 = cx - sa * half,  y1 = half - ca * half;
+  const x2 = cx + sa * half,  y2 = half + ca * half;
 
-// ── ワールド座標→スクリーンX ─────────────────────────
-function wx(worldX) {
-  return W * 0.5 + (worldX - posX) * SCALE;
+  ctx.save();
+  ctx.strokeStyle = '#b0b0b0';
+  ctx.lineWidth   = 2;
+  ctx.lineCap     = 'butt';
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.restore();
 }
 
 // ── 描画ループ ────────────────────────────────────────
-let lastDrawT = 0;
 function draw(now) {
   requestAnimationFrame(draw);
 
-  ctx.clearRect(0, 0, W, H);
-
-  // 背景
-  ctx.fillStyle = '#060608';
+  // 背景（真っ白）
+  ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, W, H);
 
-  const cx = W * 0.5;
-
-  // 極薄の水平グリッド
-  ctx.strokeStyle = 'rgba(255,255,255,0.022)';
-  ctx.lineWidth = 0.5;
-  for (let y = 50; y < H; y += 66) {
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-  }
-
-  // ── 3cm 引っかかり物体（ほぼ透明な円） ──────────────
-  const objSX = wx(CATCH_X);
-  if (!catchFired) {
-    const dist = Math.abs(posX - CATCH_X);
-    const prox = dist < 0.022 ? (1 - dist / 0.022) : 0;
-    if (prox > 0) {
-      ctx.strokeStyle = `rgba(160,190,255,${prox * 0.22})`;
-      ctx.lineWidth = 1;
-      ctx.setLineDash([3, 6]);
-      ctx.beginPath();
-      ctx.arc(objSX, H * 0.5, 30, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-  }
-  // 引っかかり時のリップル
-  if (catchFired && now - catchT < 700) {
-    const p = (now - catchT) / 700;
-    ctx.strokeStyle = `rgba(160,200,255,${(1 - p) * 0.45})`;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([3, 6]);
-    ctx.beginPath();
-    ctx.arc(wx(CATCH_X), H * 0.5, 30 + p * 28, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
-  }
-
-  // ── 6cm でこぼこ壁 ────────────────────────────────
-  const wallSX = wx(WALL_X);
-  const wallVisible = wallSX < W + 40;
-  if (wallVisible) {
-    const fade = Math.min(1, (W + 40 - wallSX) / 90);
-
-    // 壁塗り
-    ctx.save();
-    ctx.beginPath();
-    let first = true;
-    for (let y = 0; y <= H; y += 3) {
-      const bx = wallSX + bumpAt(y);
-      if (first) { ctx.moveTo(bx, y); first = false; }
-      else ctx.lineTo(bx, y);
-    }
-    ctx.lineTo(W + 2, H); ctx.lineTo(W + 2, 0); ctx.closePath();
-    ctx.fillStyle = `rgba(40,40,46,${fade})`;
-    ctx.fill();
-    ctx.restore();
-
-    // 壁のエッジ線
-    ctx.strokeStyle = `rgba(120,120,135,${fade * 0.75})`;
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    first = true;
-    for (let y = 0; y <= H; y += 3) {
-      const bx = wallSX + bumpAt(y);
-      if (first) { ctx.moveTo(bx, y); first = false; }
-      else ctx.lineTo(bx, y);
-    }
-    ctx.stroke();
-
-    // カツカツ火花
-    sparks = sparks.filter(s => s.alpha > 0.02);
-    for (const s of sparks) {
-      ctx.fillStyle = `rgba(230,230,255,${s.alpha})`;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
-      ctx.fill();
-      s.alpha *= 0.78;
-    }
-  }
-
-  // ── 杖の動き計算 ─────────────────────────────────
+  // 杖の現在角度を状態に応じて算出
   if (wallMode) {
+    // ざらざら: 左右高速往復（±約20°, 約10Hz）
+    // 2つの周波数を重ねてカツカツ感を出す
     const t = now * 0.001;
-    // 高周波振動（カツカツ感）
-    caneOff = Math.sin(t * 94) * 4.5
-            + Math.sin(t * 157) * 2
-            + Math.sin(t * 43 + 1) * 1.5;
-    // 杖先が壁に当たったら火花
-    if (wallVisible && Math.random() < 0.25) {
-      const fy = Math.random() * H;
-      const bx = wallSX + bumpAt(fy);
-      const caneTip = cx + caneOff;
-      if (Math.abs(caneTip - bx) < 14) {
-        sparks.push({ x: bx, y: fy, alpha: 0.75, r: 2.5 + Math.random() * 3 });
-      }
-    }
+    caneAngle = Math.sin(t * 63.0) * 0.34
+              + Math.sin(t * 97.0) * 0.07;
+
   } else if (catchFired) {
+    // 引っかかり: 傾いてから戻る減衰振動
     const elapsed = (now - catchT) * 0.001;
-    if (elapsed < 1.8) {
-      // 減衰振動
-      caneOff = Math.exp(-elapsed * 4.2) * Math.sin(elapsed * 28) * 20;
-    } else {
-      caneOff *= 0.88;
-    }
+    // 最大 ~22°(0.38rad) から減衰
+    caneAngle = 0.38 * Math.exp(-elapsed * 4.5)
+                     * Math.cos(elapsed * 20.0);
+
   } else {
-    caneOff *= 0.88;
+    // 自由: 垂直に戻る
+    caneAngle *= 0.88;
   }
 
-  const caneX = cx + caneOff;
-
-  // 杖のグロー
-  if (wallMode) {
-    const gr = ctx.createLinearGradient(caneX - 18, 0, caneX + 18, 0);
-    gr.addColorStop(0, 'transparent');
-    gr.addColorStop(0.5, 'rgba(255,155,50,0.12)');
-    gr.addColorStop(1, 'transparent');
-    ctx.fillStyle = gr;
-    ctx.fillRect(caneX - 18, 0, 36, H);
-  } else if (catchFired && now - catchT < 900) {
-    const p = 1 - (now - catchT) / 900;
-    const gr = ctx.createLinearGradient(caneX - 18, 0, caneX + 18, 0);
-    gr.addColorStop(0, 'transparent');
-    gr.addColorStop(0.5, `rgba(110,155,255,${p * 0.1})`);
-    gr.addColorStop(1, 'transparent');
-    ctx.fillStyle = gr;
-    ctx.fillRect(caneX - 18, 0, 36, H);
-  }
-
-  // 杖本体（2px グレーの縦線）
-  ctx.strokeStyle = wallMode ? '#c0c0c8' : '#888892';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(caneX, 0);
-  ctx.lineTo(caneX, H);
-  ctx.stroke();
-
-  // 杖先の丸
-  ctx.fillStyle = wallMode ? 'rgba(255,170,80,0.9)' : 'rgba(160,160,172,0.85)';
-  ctx.beginPath();
-  ctx.arc(caneX, H - 22, 4, 0, Math.PI * 2);
-  ctx.fill();
-
-  // ── 上部プログレスバー（動作確認用） ──────────────
-  if (running) {
-    const prog = Math.min(posX / WALL_X, 1);
-    ctx.fillStyle = 'rgba(255,255,255,0.05)';
-    ctx.fillRect(0, 0, W, 3);
-    const barColor = wallMode
-      ? 'rgba(255,155,55,0.55)'
-      : catchFired
-        ? 'rgba(110,155,255,0.5)'
-        : 'rgba(255,255,255,0.22)';
-    ctx.fillStyle = barColor;
-    ctx.fillRect(0, 0, prog * W, 3);
-  }
+  drawCane(caneAngle);
 }
 requestAnimationFrame(draw);
 
@@ -278,31 +151,30 @@ requestAnimationFrame(draw);
 function handleMotion(e) {
   if (!running) return;
   const now = performance.now();
-  if (!lastTime) { lastTime = now; return; }
-  const dt = Math.min((now - lastTime) * 0.001, 0.05);
-  lastTime = now;
+  if (!lastT) { lastT = now; return; }
+  const dt = Math.min((now - lastT) * 0.001, 0.05);
+  lastT = now;
 
   const acc = e.accelerationIncludingGravity || e.acceleration;
   if (!acc) return;
 
-  // iPhone portrait: x軸 = 左右（右が正）
-  const raw = acc.x || 0;
-  const filtered = raw > STILL_THR ? raw : 0;
+  // iPhone portrait 右方向 = acc.x 正
+  const raw      = acc.x || 0;
+  const filtered = raw > STILL ? raw : 0;
 
   velX = (velX + filtered * dt) * (filtered === 0 ? VEL_DAMP : 0.99);
   if (velX < 0.002) velX = 0;
 
-  // 右方向のみ加算。壁で上限キャップ
-  if (!wallMode) {
-    posX += Math.max(0, velX * dt);
-  } else {
-    posX = Math.min(posX + Math.max(0, velX * dt), WALL_CAP);
-  }
+  // 右方向のみ加算。壁モードでは 6cm + α でキャップ
+  const delta = Math.max(0, velX * dt);
+  posX = wallMode
+    ? Math.min(posX + delta, WALL_X + 0.005)
+    : posX + delta;
 
   // 状態遷移
   if (!catchFired && posX >= CATCH_X) {
     catchFired = true;
-    catchT = performance.now();
+    catchT     = performance.now();
   }
   if (!wallMode && posX >= WALL_X) {
     wallMode = true;
@@ -311,29 +183,31 @@ function handleMotion(e) {
   updateStatus();
 }
 
+// ── ステータス表示 ────────────────────────────────────
 function updateStatus() {
   const dot = document.getElementById('dot');
   const txt = document.getElementById('statusText');
   const cm  = (posX * 100).toFixed(1);
 
   if (wallMode) {
-    dot.style.background = 'rgba(255,155,55,1)';
-    txt.textContent = `壁接触 ${cm}cm`;
-    txt.style.color  = 'rgba(255,165,70,0.9)';
+    dot.style.background  = 'rgba(220,100,50,0.9)';
+    txt.style.color        = 'rgba(200,80,30,0.8)';
+    txt.textContent        = `ざらざら接触中 · ${cm} cm`;
   } else if (catchFired) {
-    dot.style.background = 'rgba(110,155,255,1)';
-    txt.textContent = `引っかかり ${cm}cm`;
-    txt.style.color  = 'rgba(130,170,255,0.9)';
+    dot.style.background  = 'rgba(60,120,220,0.9)';
+    txt.style.color        = 'rgba(50,100,200,0.8)';
+    txt.textContent        = `引っかかり · ${cm} cm`;
   } else {
-    dot.style.background = 'rgba(80,220,140,0.95)';
-    txt.textContent = `移動中 ${cm}cm`;
-    txt.style.color  = 'rgba(255,255,255,0.32)';
+    dot.style.background  = 'rgba(40,180,100,0.85)';
+    txt.style.color        = 'rgba(0,0,0,0.28)';
+    txt.textContent        = `正常動作中 · ${cm} cm`;
   }
 }
 
 // ── 開始 / リセット ────────────────────────────────────
 async function startSensor() {
   const btn = document.getElementById('startBtn');
+
   if (typeof DeviceMotionEvent !== 'undefined'
       && typeof DeviceMotionEvent.requestPermission === 'function') {
     try {
@@ -347,21 +221,28 @@ async function startSensor() {
       return;
     }
   }
+
   window.addEventListener('devicemotion', handleMotion, { passive: true });
   running = true;
+
   btn.textContent = 'リセット';
-  btn.onclick = doReset;
-  document.getElementById('dot').style.background = 'rgba(80,220,140,0.95)';
-  document.getElementById('statusText').textContent = '移動中 0.0cm';
+  btn.onclick     = doReset;
+
+  const dot = document.getElementById('dot');
+  dot.style.background = 'rgba(40,180,100,0.85)';
+  document.getElementById('statusText').textContent = '正常動作中 · 0.0 cm';
 }
 
 function doReset() {
-  posX = 0; velX = 0; caneOff = 0;
-  catchFired = false; wallMode = false;
-  lastTime = null; sparks = [];
-  document.getElementById('dot').style.background = 'rgba(80,220,140,0.95)';
-  document.getElementById('statusText').textContent = '移動中 0.0cm';
-  document.getElementById('statusText').style.color = 'rgba(255,255,255,0.32)';
+  posX = 0; velX = 0;
+  caneAngle = 0;
+  catchFired = false;
+  wallMode   = false;
+  lastT      = null;
+
+  document.getElementById('dot').style.background   = 'rgba(40,180,100,0.85)';
+  document.getElementById('statusText').style.color = 'rgba(0,0,0,0.28)';
+  document.getElementById('statusText').textContent  = '正常動作中 · 0.0 cm';
 }
 </script>
 </body>
