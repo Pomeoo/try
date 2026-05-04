@@ -3,199 +3,365 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>水平移動距離メーター</title>
+<title>仮想杖</title>
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, sans-serif; background: #f5f5f0; min-height: 100vh; padding: 1.5rem 1rem; }
-  h1 { font-size: 18px; font-weight: 600; color: #1a1a1a; margin-bottom: 1rem; }
-  .badge { display: inline-block; font-size: 12px; padding: 3px 10px; border-radius: 8px; margin-bottom: 1rem; font-weight: 500; }
-  .stat-card { background: #fff; border-radius: 12px; padding: 1rem; margin-bottom: 10px; border: 0.5px solid #e0e0d8; }
-  .stat-label { font-size: 12px; color: #888; margin-bottom: 4px; }
-  .stat-value { font-size: 32px; font-weight: 600; color: #1a1a1a; }
-  .stat-unit { font-size: 14px; color: #888; margin-left: 4px; }
-  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
-  .stat-value-sm { font-size: 22px; font-weight: 600; }
-  .vis-card { background: #fff; border-radius: 12px; padding: 1rem; margin-bottom: 10px; border: 0.5px solid #e0e0d8; }
-  .vis-label { font-size: 12px; color: #888; margin-bottom: 8px; }
-  .bar-track { position: relative; height: 36px; background: #f5f5f0; border-radius: 18px; overflow: hidden; margin-bottom: 8px; }
-  .bar-center { position: absolute; left: 50%; top: 0; width: 1.5px; height: 100%; background: #ccc; }
-  .bar-fill { position: absolute; top: 5px; bottom: 5px; border-radius: 12px; background: #1D9E75; transition: left 0.08s, width 0.08s; }
-  .bar-dot { position: absolute; width: 26px; height: 26px; border-radius: 50%; top: 5px; background: #1D9E75; transition: left 0.08s; transform: translateX(-50%); }
-  .mini-track { height: 10px; background: #f5f5f0; border-radius: 5px; overflow: hidden; position: relative; margin-top: 6px; }
-  .mini-fill { position: absolute; top: 0; height: 100%; border-radius: 5px; background: #378ADD; transition: left 0.05s, width 0.05s; }
-  canvas { width: 100%; height: 80px; display: block; border-radius: 8px; background: #f5f5f0; }
-  .btn-row { display: flex; gap: 8px; margin-top: 10px; }
-  .btn-start { flex: 1; padding: 14px; border: none; border-radius: 10px; font-size: 16px; font-weight: 600; background: #1D9E75; color: #fff; cursor: pointer; }
-  .btn-start:active { transform: scale(0.97); }
-  .btn-reset { padding: 14px 20px; border: 0.5px solid #ccc; border-radius: 10px; font-size: 14px; background: #fff; color: #666; cursor: pointer; }
-  .hint { font-size: 13px; color: #999; text-align: center; margin-top: 10px; line-height: 1.6; }
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body {
+  width:100%; height:100%;
+  overflow:hidden;
+  background:#000;
+  touch-action:none;
+  -webkit-user-select:none;
+  user-select:none;
+}
+canvas { display:block; }
+
+#statusDot {
+  position:fixed; top:18px; right:18px;
+  display:flex; align-items:center; gap:7px;
+  font-family:-apple-system, monospace;
+  font-size:11px; letter-spacing:0.06em;
+  color:rgba(255,255,255,0.3);
+  pointer-events:none;
+  z-index:10;
+}
+#dot {
+  width:7px; height:7px; border-radius:50%;
+  background:rgba(255,255,255,0.15);
+  flex-shrink:0;
+}
+#statusText { transition: color 0.3s; }
+
+#startBtn {
+  position:fixed; bottom:52px; left:50%;
+  transform:translateX(-50%);
+  padding:15px 52px;
+  border:1px solid rgba(255,255,255,0.18);
+  border-radius:100px;
+  background:rgba(255,255,255,0.04);
+  color:rgba(255,255,255,0.85);
+  font-family:-apple-system, sans-serif;
+  font-size:15px; letter-spacing:0.1em;
+  cursor:pointer;
+  z-index:10;
+  -webkit-backdrop-filter:blur(12px);
+  backdrop-filter:blur(12px);
+}
+#startBtn:active { opacity:0.6; }
 </style>
 </head>
 <body>
-<h1>水平移動距離メーター</h1>
-<div id="statusBadge" class="badge" style="background:#EAF3DE;color:#3B6D11;">待機中</div>
-
-<div class="stat-card">
-  <div class="stat-label">総移動距離</div>
-  <div><span class="stat-value" id="totalDist">0.00</span><span class="stat-unit">m</span></div>
-</div>
-
-<div class="grid2">
-  <div class="stat-card">
-    <div class="stat-label">現在位置</div>
-    <div><span class="stat-value-sm" id="posX">0.00</span><span class="stat-unit">m</span></div>
-  </div>
-  <div class="stat-card">
-    <div class="stat-label">速度</div>
-    <div><span class="stat-value-sm" id="velX">0.00</span><span class="stat-unit">m/s</span></div>
-  </div>
-</div>
-
-<div class="vis-card">
-  <div class="vis-label">位置バー（中心=原点）</div>
-  <div class="bar-track">
-    <div class="bar-center"></div>
-    <div class="bar-fill" id="barFill" style="left:50%;width:0;"></div>
-    <div class="bar-dot" id="barDot" style="left:50%;"></div>
-  </div>
-  <div class="vis-label" style="margin-top:8px;">加速度 X軸</div>
-  <div class="mini-track">
-    <div class="mini-fill" id="accelBar" style="left:50%;width:0;"></div>
-  </div>
-</div>
-
-<div class="vis-card">
-  <div class="vis-label">移動軌跡</div>
-  <canvas id="pathCanvas"></canvas>
-</div>
-
-<div class="btn-row">
-  <button class="btn-start" id="startBtn" onclick="toggleMeasure()">計測開始</button>
-  <button class="btn-reset" onclick="resetAll()">リセット</button>
-</div>
-<p class="hint" id="hintText">「計測開始」をタップしてセンサーを起動<br>iPhoneを水平に持ち、横にスライドさせてください</p>
+<canvas id="c"></canvas>
+<div id="statusDot"><span id="dot"></span><span id="statusText">待機中</span></div>
+<button id="startBtn" onclick="startSensor()">計測開始</button>
 
 <script>
-let running = false, lastTime = null;
-let velX = 0, posX = 0, totalDist = 0, prevPosX = 0, rawAcc = 0;
-const STILL_THRESHOLD = 0.08, DAMPING = 0.92;
-const pathPoints = [], MAX_PATH = 200;
-
-const canvas = document.getElementById('pathCanvas');
+const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
-function resizeCanvas() {
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = canvas.offsetWidth * dpr;
-  canvas.height = canvas.offsetHeight * dpr;
-  ctx.scale(dpr, dpr);
-}
-resizeCanvas();
+let W, H, DPR;
 
-function drawPath() {
-  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+function resize() {
+  DPR = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width  = W * DPR;
+  canvas.height = H * DPR;
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── 物理 ──────────────────────────────────────────────
+let posX = 0;          // 移動距離(m) 右方向のみ
+let velX = 0;
+let lastTime = null;
+let running = false;
+const STILL_THR  = 0.09;   // 静止閾値 m/s²
+const VEL_DAMP   = 0.80;   // 静止時ダンピング
+
+// ── ワールド定数 ──────────────────────────────────────
+const SCALE      = 3200;   // px/m → 32px/cm
+const CATCH_X    = 0.030;  // 3cm: 引っかかり物体
+const WALL_X     = 0.060;  // 6cm: でこぼこ壁
+const WALL_CAP   = WALL_X + 0.004; // 壁への最大進入量
+
+// ── 杖アニメーション変数 ─────────────────────────────
+let caneOff   = 0;    // 中心からの水平オフセット(px)
+let catchFired = false;
+let catchT    = 0;
+let wallMode  = false;
+let sparks    = [];   // [{x,y,alpha,r}] カツカツ火花
+
+// ── 壁の凹凸プロフィール ──────────────────────────────
+// 矩形の凸凹を繰り返す
+function bumpAt(y) {
+  const seg = Math.floor(y / 22) % 4;
+  if (seg === 1) return 14;
+  if (seg === 3) return 7;
+  return 0;
+}
+
+// ── ワールド座標→スクリーンX ─────────────────────────
+function wx(worldX) {
+  return W * 0.5 + (worldX - posX) * SCALE;
+}
+
+// ── 描画ループ ────────────────────────────────────────
+let lastDrawT = 0;
+function draw(now) {
+  requestAnimationFrame(draw);
+
   ctx.clearRect(0, 0, W, H);
-  if (pathPoints.length < 2) return;
-  const minP = Math.min(...pathPoints), maxP = Math.max(...pathPoints);
-  const range = Math.max(maxP - minP, 0.5);
-  const zeroY = H - ((0 - minP) / range) * (H - 12) - 6;
-  ctx.strokeStyle = 'rgba(29,158,117,0.2)';
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(0, zeroY); ctx.lineTo(W, zeroY); ctx.stroke();
+
+  // 背景
+  ctx.fillStyle = '#060608';
+  ctx.fillRect(0, 0, W, H);
+
+  const cx = W * 0.5;
+
+  // 極薄の水平グリッド
+  ctx.strokeStyle = 'rgba(255,255,255,0.022)';
+  ctx.lineWidth = 0.5;
+  for (let y = 50; y < H; y += 66) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // ── 3cm 引っかかり物体（ほぼ透明な円） ──────────────
+  const objSX = wx(CATCH_X);
+  if (!catchFired) {
+    const dist = Math.abs(posX - CATCH_X);
+    const prox = dist < 0.022 ? (1 - dist / 0.022) : 0;
+    if (prox > 0) {
+      ctx.strokeStyle = `rgba(160,190,255,${prox * 0.22})`;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 6]);
+      ctx.beginPath();
+      ctx.arc(objSX, H * 0.5, 30, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+  // 引っかかり時のリップル
+  if (catchFired && now - catchT < 700) {
+    const p = (now - catchT) / 700;
+    ctx.strokeStyle = `rgba(160,200,255,${(1 - p) * 0.45})`;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 6]);
+    ctx.beginPath();
+    ctx.arc(wx(CATCH_X), H * 0.5, 30 + p * 28, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // ── 6cm でこぼこ壁 ────────────────────────────────
+  const wallSX = wx(WALL_X);
+  const wallVisible = wallSX < W + 40;
+  if (wallVisible) {
+    const fade = Math.min(1, (W + 40 - wallSX) / 90);
+
+    // 壁塗り
+    ctx.save();
+    ctx.beginPath();
+    let first = true;
+    for (let y = 0; y <= H; y += 3) {
+      const bx = wallSX + bumpAt(y);
+      if (first) { ctx.moveTo(bx, y); first = false; }
+      else ctx.lineTo(bx, y);
+    }
+    ctx.lineTo(W + 2, H); ctx.lineTo(W + 2, 0); ctx.closePath();
+    ctx.fillStyle = `rgba(40,40,46,${fade})`;
+    ctx.fill();
+    ctx.restore();
+
+    // 壁のエッジ線
+    ctx.strokeStyle = `rgba(120,120,135,${fade * 0.75})`;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    first = true;
+    for (let y = 0; y <= H; y += 3) {
+      const bx = wallSX + bumpAt(y);
+      if (first) { ctx.moveTo(bx, y); first = false; }
+      else ctx.lineTo(bx, y);
+    }
+    ctx.stroke();
+
+    // カツカツ火花
+    sparks = sparks.filter(s => s.alpha > 0.02);
+    for (const s of sparks) {
+      ctx.fillStyle = `rgba(230,230,255,${s.alpha})`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+      s.alpha *= 0.78;
+    }
+  }
+
+  // ── 杖の動き計算 ─────────────────────────────────
+  if (wallMode) {
+    const t = now * 0.001;
+    // 高周波振動（カツカツ感）
+    caneOff = Math.sin(t * 94) * 4.5
+            + Math.sin(t * 157) * 2
+            + Math.sin(t * 43 + 1) * 1.5;
+    // 杖先が壁に当たったら火花
+    if (wallVisible && Math.random() < 0.25) {
+      const fy = Math.random() * H;
+      const bx = wallSX + bumpAt(fy);
+      const caneTip = cx + caneOff;
+      if (Math.abs(caneTip - bx) < 14) {
+        sparks.push({ x: bx, y: fy, alpha: 0.75, r: 2.5 + Math.random() * 3 });
+      }
+    }
+  } else if (catchFired) {
+    const elapsed = (now - catchT) * 0.001;
+    if (elapsed < 1.8) {
+      // 減衰振動
+      caneOff = Math.exp(-elapsed * 4.2) * Math.sin(elapsed * 28) * 20;
+    } else {
+      caneOff *= 0.88;
+    }
+  } else {
+    caneOff *= 0.88;
+  }
+
+  const caneX = cx + caneOff;
+
+  // 杖のグロー
+  if (wallMode) {
+    const gr = ctx.createLinearGradient(caneX - 18, 0, caneX + 18, 0);
+    gr.addColorStop(0, 'transparent');
+    gr.addColorStop(0.5, 'rgba(255,155,50,0.12)');
+    gr.addColorStop(1, 'transparent');
+    ctx.fillStyle = gr;
+    ctx.fillRect(caneX - 18, 0, 36, H);
+  } else if (catchFired && now - catchT < 900) {
+    const p = 1 - (now - catchT) / 900;
+    const gr = ctx.createLinearGradient(caneX - 18, 0, caneX + 18, 0);
+    gr.addColorStop(0, 'transparent');
+    gr.addColorStop(0.5, `rgba(110,155,255,${p * 0.1})`);
+    gr.addColorStop(1, 'transparent');
+    ctx.fillStyle = gr;
+    ctx.fillRect(caneX - 18, 0, 36, H);
+  }
+
+  // 杖本体（2px グレーの縦線）
+  ctx.strokeStyle = wallMode ? '#c0c0c8' : '#888892';
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.strokeStyle = '#1D9E75'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
-  pathPoints.forEach((p, i) => {
-    const x = (i / (MAX_PATH - 1)) * W;
-    const y = H - ((p - minP) / range) * (H - 12) - 6;
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  });
+  ctx.moveTo(caneX, 0);
+  ctx.lineTo(caneX, H);
   ctx.stroke();
-}
 
-function updateUI() {
-  document.getElementById('totalDist').textContent = totalDist.toFixed(2);
-  document.getElementById('posX').textContent = posX.toFixed(2);
-  document.getElementById('velX').textContent = velX.toFixed(2);
-  const clamp = Math.max(-2, Math.min(2, posX));
-  const pct = (clamp / 2) * 50 + 50;
-  document.getElementById('barDot').style.left = pct + '%';
-  if (pct >= 50) {
-    document.getElementById('barFill').style.left = '50%';
-    document.getElementById('barFill').style.width = (pct - 50) + '%';
-  } else {
-    document.getElementById('barFill').style.left = pct + '%';
-    document.getElementById('barFill').style.width = (50 - pct) + '%';
-  }
-  const aClamp = Math.max(-5, Math.min(5, rawAcc));
-  const aPct = (aClamp / 5) * 50 + 50;
-  if (aPct >= 50) {
-    document.getElementById('accelBar').style.left = '50%';
-    document.getElementById('accelBar').style.width = (aPct - 50) + '%';
-  } else {
-    document.getElementById('accelBar').style.left = aPct + '%';
-    document.getElementById('accelBar').style.width = (50 - aPct) + '%';
-  }
-  if (pathPoints.length >= MAX_PATH) pathPoints.shift();
-  pathPoints.push(posX);
-  drawPath();
-}
+  // 杖先の丸
+  ctx.fillStyle = wallMode ? 'rgba(255,170,80,0.9)' : 'rgba(160,160,172,0.85)';
+  ctx.beginPath();
+  ctx.arc(caneX, H - 22, 4, 0, Math.PI * 2);
+  ctx.fill();
 
-function handleMotion(event) {
+  // ── 上部プログレスバー（動作確認用） ──────────────
+  if (running) {
+    const prog = Math.min(posX / WALL_X, 1);
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillRect(0, 0, W, 3);
+    const barColor = wallMode
+      ? 'rgba(255,155,55,0.55)'
+      : catchFired
+        ? 'rgba(110,155,255,0.5)'
+        : 'rgba(255,255,255,0.22)';
+    ctx.fillStyle = barColor;
+    ctx.fillRect(0, 0, prog * W, 3);
+  }
+}
+requestAnimationFrame(draw);
+
+// ── センサー処理 ──────────────────────────────────────
+function handleMotion(e) {
   if (!running) return;
   const now = performance.now();
   if (!lastTime) { lastTime = now; return; }
-  const dt = (now - lastTime) / 1000;
+  const dt = Math.min((now - lastTime) * 0.001, 0.05);
   lastTime = now;
-  if (dt <= 0 || dt > 0.2) return;
-  const acc = event.accelerationIncludingGravity || event.acceleration;
+
+  const acc = e.accelerationIncludingGravity || e.acceleration;
   if (!acc) return;
-  rawAcc = acc.x || 0;
-  const fAcc = Math.abs(rawAcc) < STILL_THRESHOLD ? 0 : rawAcc;
-  velX = (velX + fAcc * dt) * (fAcc === 0 ? DAMPING : 1);
-  if (Math.abs(velX) < 0.001) velX = 0;
-  prevPosX = posX;
-  posX += velX * dt;
-  totalDist += Math.abs(posX - prevPosX);
-  updateUI();
+
+  // iPhone portrait: x軸 = 左右（右が正）
+  const raw = acc.x || 0;
+  const filtered = raw > STILL_THR ? raw : 0;
+
+  velX = (velX + filtered * dt) * (filtered === 0 ? VEL_DAMP : 0.99);
+  if (velX < 0.002) velX = 0;
+
+  // 右方向のみ加算。壁で上限キャップ
+  if (!wallMode) {
+    posX += Math.max(0, velX * dt);
+  } else {
+    posX = Math.min(posX + Math.max(0, velX * dt), WALL_CAP);
+  }
+
+  // 状態遷移
+  if (!catchFired && posX >= CATCH_X) {
+    catchFired = true;
+    catchT = performance.now();
+  }
+  if (!wallMode && posX >= WALL_X) {
+    wallMode = true;
+  }
+
+  updateStatus();
 }
 
-async function toggleMeasure() {
-  if (!running) {
-    if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-      try {
-        const perm = await DeviceMotionEvent.requestPermission();
-        if (perm !== 'granted') {
-          document.getElementById('hintText').textContent = '許可が拒否されました。設定 > Safari > モーションとフィットネスを確認してください';
-          return;
-        }
-      } catch(e) {
-        document.getElementById('hintText').textContent = 'エラー: ' + e.message;
-        return;
-      }
-    }
-    window.addEventListener('devicemotion', handleMotion);
-    running = true; lastTime = null;
-    document.getElementById('startBtn').textContent = '計測停止';
-    document.getElementById('startBtn').style.background = '#993C1D';
-    const b = document.getElementById('statusBadge');
-    b.style.background = '#E1F5EE'; b.style.color = '#0F6E56'; b.textContent = '計測中';
-    document.getElementById('hintText').textContent = 'iPhoneを水平に持ち、左右にゆっくり動かしてください';
+function updateStatus() {
+  const dot = document.getElementById('dot');
+  const txt = document.getElementById('statusText');
+  const cm  = (posX * 100).toFixed(1);
+
+  if (wallMode) {
+    dot.style.background = 'rgba(255,155,55,1)';
+    txt.textContent = `壁接触 ${cm}cm`;
+    txt.style.color  = 'rgba(255,165,70,0.9)';
+  } else if (catchFired) {
+    dot.style.background = 'rgba(110,155,255,1)';
+    txt.textContent = `引っかかり ${cm}cm`;
+    txt.style.color  = 'rgba(130,170,255,0.9)';
   } else {
-    window.removeEventListener('devicemotion', handleMotion);
-    running = false;
-    document.getElementById('startBtn').textContent = '計測開始';
-    document.getElementById('startBtn').style.background = '#1D9E75';
-    const b = document.getElementById('statusBadge');
-    b.style.background = '#FAEEDA'; b.style.color = '#854F0B'; b.textContent = '停止中';
-    document.getElementById('hintText').textContent = '計測を停止しました。「リセット」でクリアできます';
+    dot.style.background = 'rgba(80,220,140,0.95)';
+    txt.textContent = `移動中 ${cm}cm`;
+    txt.style.color  = 'rgba(255,255,255,0.32)';
   }
 }
 
-function resetAll() {
-  velX = 0; posX = 0; totalDist = 0; prevPosX = 0; rawAcc = 0;
-  pathPoints.length = 0; updateUI();
-  document.getElementById('hintText').textContent = running
-    ? 'iPhoneを水平に持ち、左右にゆっくり動かしてください'
-    : '「計測開始」をタップしてセンサーを起動してください';
+// ── 開始 / リセット ────────────────────────────────────
+async function startSensor() {
+  const btn = document.getElementById('startBtn');
+  if (typeof DeviceMotionEvent !== 'undefined'
+      && typeof DeviceMotionEvent.requestPermission === 'function') {
+    try {
+      const p = await DeviceMotionEvent.requestPermission();
+      if (p !== 'granted') {
+        document.getElementById('statusText').textContent = 'センサー許可が必要です';
+        return;
+      }
+    } catch(err) {
+      document.getElementById('statusText').textContent = '起動エラー';
+      return;
+    }
+  }
+  window.addEventListener('devicemotion', handleMotion, { passive: true });
+  running = true;
+  btn.textContent = 'リセット';
+  btn.onclick = doReset;
+  document.getElementById('dot').style.background = 'rgba(80,220,140,0.95)';
+  document.getElementById('statusText').textContent = '移動中 0.0cm';
+}
+
+function doReset() {
+  posX = 0; velX = 0; caneOff = 0;
+  catchFired = false; wallMode = false;
+  lastTime = null; sparks = [];
+  document.getElementById('dot').style.background = 'rgba(80,220,140,0.95)';
+  document.getElementById('statusText').textContent = '移動中 0.0cm';
+  document.getElementById('statusText').style.color = 'rgba(255,255,255,0.32)';
 }
 </script>
 </body>
