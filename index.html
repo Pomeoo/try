@@ -5,222 +5,321 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Surface Haptics</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box;}
-html,body{width:100%;height:100%;background:#000;overflow:hidden;touch-action:none;}
-canvas{position:fixed;top:0;left:0;width:100%;height:100%;}
-#label{
-  position:fixed;top:calc(20px + env(safe-area-inset-top));
-  left:0;right:0;text-align:center;
-  font-size:13px;color:rgba(255,255,255,0.35);
-  font-family:-apple-system,sans-serif;letter-spacing:0.08em;
-  pointer-events:none;
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { width:100%; height:100%; background:#000; overflow:hidden; touch-action:none; }
+canvas { position:fixed; inset:0; width:100%; height:100%; }
+
+#lbl {
+  position:fixed;
+  top: calc(32px + env(safe-area-inset-top));
+  left:0; right:0;
+  text-align:center;
+  font: 12px -apple-system, sans-serif;
+  color: rgba(255,255,255,0.25);
+  letter-spacing: .12em;
+  pointer-events: none;
 }
-.tabs{
-  position:fixed;bottom:0;left:0;right:0;
-  display:flex;gap:8px;
-  padding:12px 16px calc(16px + env(safe-area-inset-bottom));
-  background:linear-gradient(transparent,rgba(0,0,0,0.8));
+
+.ui {
+  position:fixed; bottom:0; left:0; right:0;
+  padding: 10px 12px calc(16px + env(safe-area-inset-bottom));
+  background: linear-gradient(transparent, rgba(0,0,0,0.9) 45%);
 }
-.tab{
-  flex:1;padding:11px 4px;
-  border-radius:10px;
-  border:1px solid rgba(255,255,255,0.18);
-  background:transparent;
-  color:rgba(255,255,255,0.32);
-  font-size:11px;cursor:pointer;
-  font-family:-apple-system,sans-serif;
-  transition:all 0.15s;line-height:1.3;
+.tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
 }
-.tab.active{
-  background:rgba(255,255,255,0.1);
-  color:#fff;
-  border-color:rgba(255,255,255,0.5);
+.tab {
+  padding: 11px 4px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: transparent;
+  color: rgba(255,255,255,0.28);
+  font: 11px -apple-system, sans-serif;
+  letter-spacing: -.01em;
+  cursor: pointer;
+  transition: all .15s;
 }
-#perm{
-  position:fixed;top:50%;left:50%;
-  transform:translate(-50%,-50%);
-  padding:16px 32px;
-  border:1px solid rgba(255,255,255,0.4);
-  background:transparent;color:#fff;
-  font-size:15px;border-radius:100px;
-  font-family:-apple-system,sans-serif;
-  cursor:pointer;display:none;
-  letter-spacing:0.02em;
+.tab.active {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  border-color: rgba(255,255,255,0.45);
 }
-#perm-hint{
-  position:fixed;top:calc(50% + 52px);left:0;right:0;
-  text-align:center;font-size:11px;
-  color:rgba(255,255,255,0.25);
-  font-family:-apple-system,sans-serif;
-  display:none;
+
+#perm {
+  position:fixed; top:50%; left:50%;
+  transform: translate(-50%, -50%);
+  padding: 16px 32px;
+  border: 1px solid rgba(255,255,255,0.38);
+  background: transparent; color: #fff;
+  font: 15px -apple-system, sans-serif;
+  border-radius: 100px;
+  cursor: pointer;
+  display: none;
+}
+#perm-sub {
+  position:fixed; top: calc(50% + 56px); left:0; right:0;
+  text-align:center;
+  font: 11px -apple-system, sans-serif;
+  color: rgba(255,255,255,0.22);
+  display: none;
 }
 </style>
 </head>
 <body>
 <canvas id="cv"></canvas>
-<div id="label">乾いた板</div>
-<div class="tabs">
-  <button class="tab active" data-s="dry">乾いた板</button>
-  <button class="tab" data-s="wet">濡れた板</button>
-  <button class="tab" data-s="rough">ざらざら</button>
-  <button class="tab" data-s="sticky">粘着</button>
+<div id="lbl">なめらか</div>
+<div class="ui">
+  <div class="tabs">
+    <button class="tab active" data-s="smooth">なめらか</button>
+    <button class="tab" data-s="ice">氷</button>
+    <button class="tab" data-s="rubber">ゴム</button>
+    <button class="tab" data-s="rough">ざらざら</button>
+    <button class="tab" data-s="sand">砂紙</button>
+    <button class="tab" data-s="sticky">粘着</button>
+  </div>
 </div>
 <button id="perm">センサーを有効にする</button>
-<p id="perm-hint">タップして傾きセンサーを許可</p>
+<p id="perm-sub">タップして傾きセンサーを許可</p>
 
 <script>
-const cv=document.getElementById('cv');
-const ctx=cv.getContext('2d');
-let W,H;
-function resize(){W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;}
-resize();
-window.addEventListener('resize',resize);
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W, H;
 
-const NAMES={dry:'乾いた板',wet:'濡れた板',rough:'ざらざら',sticky:'粘着'};
-const S={
-  dry: {fr:0.984,grav:0.42,tLen:10,tStyle:'line',tA:0.11,shDx:3,shDy:4,shA:0.6,shBlur:false,vib:0,deform:0,sticky:0},
-  wet: {fr:0.9978,grav:0.44,tLen:55,tStyle:'line',tA:0.05,shDx:1,shDy:2,shA:0.2,shBlur:true,vib:0,deform:0,sticky:0},
-  rough:{fr:0.956,grav:0.38,tLen:22,tStyle:'dot',tA:0.22,shDx:4,shDy:5,shA:0.7,shBlur:false,vib:1.6,deform:0.09,sticky:0},
-  sticky:{fr:0.895,grav:0.30,tLen:65,tStyle:'thick',tA:0.10,shDx:1,shDy:1,shA:0.18,shBlur:false,vib:0,deform:0.28,sticky:0.14}
+function resize() {
+  W = cv.width = window.innerWidth;
+  H = cv.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', () => { resize(); spawnBall(); });
+
+// Surface names
+const NAMES = {
+  smooth: 'なめらか',
+  ice:    '氷',
+  rubber: 'ゴム',
+  rough:  'ざらざら',
+  sand:   '砂紙',
+  sticky: '粘着'
 };
 
-let cur='dry',s=S.dry;
-let ball={x:0,y:0,vx:0,vy:0};
-let tilt={x:0,y:0};
-let trail=[];
-let hasOri=false;
+// Surface physics config
+// fr: friction per frame, gv: gravity scale, vb: vibration, dm: deform, sk: sticky threshold
+const CFG = {
+  smooth: { fr:0.994,  gv:0.45, vb:0,   dm:0,    sk:0    },
+  ice:    { fr:0.9988, gv:0.52, vb:0,   dm:0,    sk:0    },
+  rubber: { fr:0.908,  gv:0.45, vb:0,   dm:0,    sk:0    },
+  rough:  { fr:0.957,  gv:0.35, vb:1.4, dm:0.08, sk:0    },
+  sand:   { fr:0.924,  gv:0.20, vb:3.0, dm:0.14, sk:0    },
+  sticky: { fr:0.882,  gv:0.28, vb:0,   dm:0.32, sk:0.14 }
+};
 
-function initBall(){ball.x=W/2;ball.y=H/2;ball.vx=0;ball.vy=0;trail=[];}
-initBall();
+let cur = 'smooth', c = CFG.smooth;
 
-document.querySelectorAll('.tab').forEach(b=>{
-  b.addEventListener('click',()=>{
-    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+// Ball state
+let bx, by, bvx, bvy;
+let tiltX = 0, tiltY = 0;
+
+// Phase: 'active' | 'fall' | 'spawn'
+let phase = 'spawn';
+let phaseT = 0;
+let fallVx = 0, fallVy = 0;
+
+const FALL_DUR  = 400;
+const SPAWN_DUR = 360;
+
+function spawnBall() {
+  bx = W / 2; by = H / 2;
+  bvx = 0; bvy = 0;
+  phase = 'spawn'; phaseT = 0;
+}
+spawnBall();
+
+// Easing: easeOutBack (slight overshoot on spawn)
+function easeOutBack(t) {
+  const c1 = 1.70158, c3 = c1 + 1;
+  return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+}
+
+// Surface switching
+document.querySelectorAll('.tab').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
-    cur=b.dataset.s;s=S[cur];
-    trail=[];ball.vx=0;ball.vy=0;
-    document.getElementById('label').textContent=NAMES[cur];
+    cur = b.dataset.s;
+    c = CFG[cur];
+    document.getElementById('lbl').textContent = NAMES[cur];
+    spawnBall();
   });
 });
 
-function onOri(e){
-  if(e.gamma===null)return;
-  hasOri=true;
-  tilt.x=Math.max(-1,Math.min(1,e.gamma/22));
-  tilt.y=Math.max(-1,Math.min(1,(e.beta-30)/22));
+// Device orientation
+function onOrientation(e) {
+  if (e.gamma == null) return;
+  tiltX = Math.max(-1, Math.min(1, e.gamma / 22));
+  tiltY = Math.max(-1, Math.min(1, (e.beta - 30) / 22));
+}
+function setupOrientation() {
+  window.addEventListener('deviceorientation', onOrientation);
 }
 
-function setupOri(){window.addEventListener('deviceorientation',onOri);}
+const permBtn = document.getElementById('perm');
+const permSub = document.getElementById('perm-sub');
 
-const permBtn=document.getElementById('perm');
-const permHint=document.getElementById('perm-hint');
-
-if(typeof DeviceOrientationEvent!=='undefined'&&typeof DeviceOrientationEvent.requestPermission==='function'){
-  permBtn.style.display='block';
-  permHint.style.display='block';
-  permBtn.addEventListener('click',async()=>{
-    try{
-      const r=await DeviceOrientationEvent.requestPermission();
-      if(r==='granted'){setupOri();permBtn.style.display='none';permHint.style.display='none';}
-    }catch(e){permBtn.textContent='再度タップ';}
+if (typeof DeviceOrientationEvent !== 'undefined' &&
+    typeof DeviceOrientationEvent.requestPermission === 'function') {
+  // iOS 13+
+  permBtn.style.display = 'block';
+  permSub.style.display = 'block';
+  permBtn.addEventListener('click', async () => {
+    try {
+      const r = await DeviceOrientationEvent.requestPermission();
+      if (r === 'granted') {
+        setupOrientation();
+        permBtn.style.display = 'none';
+        permSub.style.display = 'none';
+      }
+    } catch(e) {
+      permBtn.textContent = '再度タップしてください';
+    }
   });
-}else{
-  setupOri();
+} else {
+  setupOrientation();
 }
 
-function update(){
-  const R=Math.min(W,H)*0.053;
-  let ax=tilt.x*s.grav;
-  let ay=tilt.y*s.grav;
-  const spd=Math.sqrt(ball.vx**2+ball.vy**2);
+// Main loop
+let prevT = 0;
 
-  if(s.vib>0&&spd>0.1){
-    ax+=(Math.random()-0.5)*s.vib;
-    ay+=(Math.random()-0.5)*s.vib;
-  }
-  if(s.sticky>0){
-    const f=Math.sqrt(ax**2+ay**2);
-    if(spd<0.4&&f<s.sticky){ax*=0.03;ay*=0.03;}
-  }
+function tick(t) {
+  const dt  = prevT ? Math.min(t - prevT, 50) : 16.67;
+  prevT = t;
+  const R   = Math.min(W, H) * 0.053;
+  const n   = dt / 16.67; // normalize to 60fps
+  phaseT += dt;
 
-  ball.vx=(ball.vx+ax)*s.fr;
-  ball.vy=(ball.vy+ay)*s.fr;
-  ball.x+=ball.vx;
-  ball.y+=ball.vy;
+  // ---- Physics update ----
+  if (phase === 'spawn') {
+    if (phaseT >= SPAWN_DUR) { phase = 'active'; phaseT = 0; }
 
-  const m=R+2;
-  if(ball.x<m){ball.x=m;ball.vx*=-0.28;}
-  if(ball.x>W-m){ball.x=W-m;ball.vx*=-0.28;}
-  if(ball.y<m){ball.y=m;ball.vy*=-0.28;}
-  if(ball.y>H-m){ball.y=H-m;ball.vy*=-0.28;}
+  } else if (phase === 'fall') {
+    bx += fallVx * n * 2.6;
+    by += fallVy * n * 2.6;
+    if (phaseT >= FALL_DUR) spawnBall();
 
-  trail.push({x:ball.x,y:ball.y});
-  if(trail.length>s.tLen)trail.shift();
-}
+  } else {
+    // Active physics
+    let ax = tiltX * c.gv;
+    let ay = tiltY * c.gv;
+    const sp = Math.sqrt(bvx * bvx + bvy * bvy);
 
-function render(){
-  const R=Math.min(W,H)*0.053;
-  ctx.clearRect(0,0,W,H);
-  ctx.fillStyle='#000';
-  ctx.fillRect(0,0,W,H);
+    // Vibration for rough surfaces
+    if (c.vb > 0 && sp > 0.1) {
+      ax += (Math.random() - 0.5) * c.vb;
+      ay += (Math.random() - 0.5) * c.vb;
+    }
 
-  const n=trail.length;
-  if(n>1){
-    if(s.tStyle==='dot'){
-      trail.forEach((p,i)=>{
-        if(i%3!==0)return;
-        ctx.beginPath();ctx.arc(p.x,p.y,2,0,Math.PI*2);
-        ctx.fillStyle=`rgba(255,255,255,${(i/n)*s.tA*2.5})`;ctx.fill();
-      });
-    }else if(s.tStyle==='thick'){
-      for(let i=1;i<n;i++){
-        const prog=i/n;
-        ctx.beginPath();ctx.moveTo(trail[i-1].x,trail[i-1].y);ctx.lineTo(trail[i].x,trail[i].y);
-        ctx.strokeStyle=`rgba(255,255,255,${prog*s.tA*1.5})`;
-        ctx.lineWidth=prog*R*0.72+0.5;ctx.lineCap='round';ctx.stroke();
-      }
-    }else{
-      for(let i=1;i<n;i++){
-        ctx.beginPath();ctx.moveTo(trail[i-1].x,trail[i-1].y);ctx.lineTo(trail[i].x,trail[i].y);
-        ctx.strokeStyle=`rgba(255,255,255,${(i/n)*s.tA})`;
-        ctx.lineWidth=1.5;ctx.lineCap='round';ctx.stroke();
-      }
+    // Sticky threshold: needs enough force to start moving
+    if (c.sk > 0) {
+      const f = Math.sqrt(ax * ax + ay * ay);
+      if (sp < 0.4 && f < c.sk) { ax *= 0.03; ay *= 0.03; }
+    }
+
+    const fr = Math.pow(c.fr, n);
+    bvx = (bvx + ax * n) * fr;
+    bvy = (bvy + ay * n) * fr;
+    bx += bvx * n;
+    by += bvy * n;
+
+    // Edge detection → trigger fall
+    const edge = R * 0.35;
+    if (bx < edge || bx > W - edge || by < edge || by > H - edge) {
+      // Fall direction = away from center
+      const dx = bx - W / 2, dy = by - H / 2;
+      const d  = Math.sqrt(dx * dx + dy * dy) || 1;
+      const minSpd = 2.5;
+      fallVx = (dx / d) * Math.max(Math.abs(bvx), minSpd);
+      fallVy = (dy / d) * Math.max(Math.abs(bvy), minSpd);
+      phase = 'fall';
+      phaseT = 0;
     }
   }
 
-  // Shadow
-  if(s.shBlur){
-    ctx.save();ctx.filter='blur(10px)';
-    ctx.beginPath();ctx.arc(ball.x+s.shDx,ball.y+s.shDy,R*0.9,0,Math.PI*2);
-    ctx.fillStyle=`rgba(255,255,255,0.08)`;ctx.fill();
-    ctx.restore();
-  }else{
-    ctx.beginPath();ctx.arc(ball.x+s.shDx,ball.y+s.shDy,R*0.88,0,Math.PI*2);
-    ctx.fillStyle=`rgba(0,0,0,${s.shA})`;ctx.fill();
+  // ---- Render ----
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+
+  // Compute visual scale and alpha based on phase
+  let al, sc;
+  if (phase === 'spawn') {
+    const p = Math.min(phaseT / SPAWN_DUR, 1);
+    sc = easeOutBack(p);
+    al = Math.min(p * 3, 1);
+  } else if (phase === 'fall') {
+    const p = Math.min(phaseT / FALL_DUR, 1);
+    sc = Math.max(0, 1 - p * 1.4);
+    al = Math.max(0, 1 - p * 2.0);
+  } else {
+    sc = 1; al = 1;
   }
+
+  if (al < 0.02 || sc < 0.01) {
+    requestAnimationFrame(tick);
+    return;
+  }
+
+  const sp2 = Math.sqrt(bvx * bvx + bvy * bvy);
+
+  // Shadow (subtle gray, offset)
+  ctx.save();
+  ctx.globalAlpha = al * 0.22;
+  ctx.beginPath();
+  ctx.arc(bx + 4 * sc, by + 5 * sc, R * 0.84 * sc, 0, Math.PI * 2);
+  ctx.fillStyle = '#404040';
+  ctx.fill();
+  ctx.restore();
 
   // Ball
-  const spd=Math.sqrt(ball.vx**2+ball.vy**2);
-  ctx.save();ctx.translate(ball.x,ball.y);
-  if(s.deform>0&&spd>1){
-    const str=1+spd*s.deform*0.055;
-    const sqz=1/Math.sqrt(str);
-    ctx.rotate(Math.atan2(ball.vy,ball.vx));
-    ctx.scale(str,sqz);
+  ctx.save();
+  ctx.translate(bx, by);
+  ctx.globalAlpha = al;
+
+  // Deformation along velocity axis (sticky/rough)
+  let angle = 0, scX = sc, scY = sc;
+  if (c.dm > 0 && sp2 > 1 && phase === 'active') {
+    const stretch = 1 + sp2 * c.dm * 0.055;
+    const squeeze = 1 / Math.sqrt(stretch);
+    angle = Math.atan2(bvy, bvx);
+    scX = stretch * sc;
+    scY = squeeze * sc;
   }
+  ctx.rotate(angle);
+  ctx.scale(scX, scY);
 
-  const gr=ctx.createRadialGradient(-R*0.22,-R*0.28,1,0,0,R);
-  gr.addColorStop(0,'#ffffff');
-  gr.addColorStop(1,'#787878');
-  ctx.beginPath();ctx.arc(0,0,R,0,Math.PI*2);
-  ctx.fillStyle=gr;ctx.fill();
+  // Ball body — radial gradient (monochrome)
+  const g = ctx.createRadialGradient(-R * 0.22, -R * 0.28, 1, 0, 0, R);
+  g.addColorStop(0,   '#ffffff');
+  g.addColorStop(0.6, '#c0c0c0');
+  g.addColorStop(1,   '#555555');
+  ctx.beginPath();
+  ctx.arc(0, 0, R, 0, Math.PI * 2);
+  ctx.fillStyle = g;
+  ctx.fill();
 
-  ctx.beginPath();ctx.arc(-R*0.26,-R*0.3,R*0.19,0,Math.PI*2);
-  ctx.fillStyle='rgba(255,255,255,0.45)';ctx.fill();
+  // Specular highlight
+  ctx.beginPath();
+  ctx.arc(-R * 0.27, -R * 0.31, R * 0.20, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.44)';
+  ctx.fill();
+
   ctx.restore();
+
+  requestAnimationFrame(tick);
 }
 
-(function loop(){update();render();requestAnimationFrame(loop);})();
+requestAnimationFrame(tick);
 </script>
 </body>
 </html>
