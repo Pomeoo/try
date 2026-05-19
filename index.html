@@ -3,269 +3,507 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>鉛筆 / ペン</title>
+<title>Visual Haptics</title>
 <style>
-* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #fff; }
+* { margin:0; padding:0; box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body { width:100%; height:100%; overflow:hidden; background:#111; font-family:-apple-system,sans-serif; }
 
-#ui {
-  position: fixed;
-  top: 0; left: 0; right: 0;
-  height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 14px;
-  gap: 10px;
-  background: rgba(255,255,255,0.92);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid #e0e0e0;
-  z-index: 10;
+#surface-canvas {
+  position:fixed;
+  top:0; left:0;
+  width:100%; height:100%;
+  touch-action:none;
 }
 
-.tools { display: flex; gap: 6px; }
-
-button {
-  height: 32px;
-  padding: 0 14px;
-  border: 1px solid #ccc;
-  background: #fff;
-  border-radius: 16px;
-  font-size: 13px;
-  color: #333;
-  cursor: pointer;
-  font-family: -apple-system, sans-serif;
-  transition: background 0.12s, color 0.12s;
+/* プローブ（棒）*/
+#probe {
+  position:fixed;
+  left:50%;
+  top:0;
+  width:2px;
+  transform:translateX(-50%);
+  pointer-events:none;
+  z-index:20;
+  transition: left 0.05s ease-out;
 }
-button.active {
-  background: #222;
-  color: #fff;
-  border-color: #222;
+#probe-shaft {
+  width:2px;
+  background: linear-gradient(180deg, transparent 0%, rgba(200,200,180,0.3) 20%, rgba(220,215,200,0.85) 60%, #e8e4d8 100%);
 }
-button.icon {
-  padding: 0;
-  width: 32px;
-  font-size: 15px;
-  color: #888;
-  border-color: transparent;
-  background: transparent;
-}
-button.icon:hover { background: #f0f0f0; }
-
-#sensor-btn {
-  font-size: 11px;
-  padding: 0 10px;
-  color: #888;
-  border-color: #ddd;
-}
-#sensor-btn.linked {
-  color: #2a9d4e;
-  border-color: #2a9d4e;
-  background: #f0faf4;
+#probe-tip {
+  width:10px; height:10px;
+  border-radius:50%;
+  background:#f0ece0;
+  margin-left:-4px;
+  box-shadow:0 0 0 2px rgba(255,255,240,0.4);
+  transition: transform 0.06s, box-shadow 0.06s;
 }
 
-#info {
-  position: fixed;
-  bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 11px;
-  color: #bbb;
-  font-family: -apple-system, sans-serif;
-  pointer-events: none;
-  white-space: nowrap;
-  transition: opacity 0.4s;
+/* 接触エフェクト */
+#contact-ring {
+  position:fixed;
+  border-radius:50%;
+  pointer-events:none;
+  z-index:18;
+  transform:translate(-50%,-50%);
 }
 
-canvas {
-  position: fixed;
-  top: 48px; left: 0;
-  width: 100%;
-  height: calc(100% - 48px);
-  touch-action: none;
-  background: #fff;
-  cursor: crosshair;
+/* テクスチャ切り替えUI */
+#texture-tabs {
+  position:fixed;
+  bottom:0; left:0; right:0;
+  height:52px;
+  display:flex;
+  background:rgba(0,0,0,0.7);
+  backdrop-filter:blur(10px);
+  border-top:1px solid rgba(255,255,255,0.08);
+  z-index:30;
+}
+.ttab {
+  flex:1;
+  border:none;
+  background:transparent;
+  color:rgba(255,255,255,0.4);
+  font-size:11px;
+  cursor:pointer;
+  padding:4px 0 8px;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:4px;
+  transition:color 0.15s;
+}
+.ttab .dot {
+  width:8px; height:8px;
+  border-radius:50%;
+  background:currentColor;
+  opacity:0.5;
+}
+.ttab.active {
+  color:#f0ece0;
+}
+.ttab.active .dot { opacity:1; }
+
+/* センサーボタン */
+#sens-btn {
+  position:fixed;
+  top:14px; right:14px;
+  padding:6px 12px;
+  background:rgba(255,255,255,0.08);
+  border:1px solid rgba(255,255,255,0.15);
+  border-radius:20px;
+  color:rgba(255,255,255,0.5);
+  font-size:11px;
+  cursor:pointer;
+  z-index:30;
+  transition:all 0.2s;
+}
+#sens-btn.on {
+  color:#7fdb9e;
+  border-color:rgba(127,219,158,0.4);
+  background:rgba(127,219,158,0.08);
+}
+
+/* 質感ラベル */
+#tex-label {
+  position:fixed;
+  top:14px; left:14px;
+  color:rgba(255,255,255,0.35);
+  font-size:11px;
+  letter-spacing:0.08em;
+  z-index:30;
+  pointer-events:none;
+  text-transform:uppercase;
 }
 </style>
 </head>
 <body>
 
-<div id="ui">
-  <div class="tools">
-    <button class="active" id="btn-pencil" onclick="setTool('pencil')">鉛筆</button>
-    <button id="btn-pen" onclick="setTool('pen')">ペン</button>
-  </div>
-  <button id="sensor-btn" onclick="requestMotion()">センサー OFF</button>
-  <button class="icon" onclick="clearCanvas()" title="消去">✕</button>
+<canvas id="surface-canvas"></canvas>
+
+<div id="probe">
+  <div id="probe-shaft"></div>
+  <div id="probe-tip"></div>
 </div>
 
-<canvas id="cv"></canvas>
+<canvas id="contact-ring" width="120" height="120" style="width:120px;height:120px;"></canvas>
 
-<div id="info">スマホを左右に動かしながら描いてください</div>
+<div id="tex-label">Smooth</div>
+
+<button id="sens-btn" onclick="requestSensor()">センサー有効化</button>
+
+<div id="texture-tabs">
+  <button class="ttab active" onclick="setTexture(0)"><span class="dot"></span>Smooth</button>
+  <button class="ttab" onclick="setTexture(1)"><span class="dot"></span>Sand</button>
+  <button class="ttab" onclick="setTexture(2)"><span class="dot"></span>Grain</button>
+  <button class="ttab" onclick="setTexture(3)"><span class="dot"></span>Bumpy</button>
+  <button class="ttab" onclick="setTexture(4)"><span class="dot"></span>Rough</button>
+</div>
 
 <script>
-const cv = document.getElementById('cv');
-const ctx = cv.getContext('2d');
-let tool = 'pencil';
-let drawing = false;
-let lx = 0, ly = 0, lt = 0;
-let accelX = 0, smoothX = 0;
-let sensorOn = false;
-let infoTimer = null;
+const surfCv = document.getElementById('surface-canvas');
+const sCtx = surfCv.getContext('2d');
+const contactCv = document.getElementById('contact-ring');
+const cCtx = contactCv.getContext('2d');
+const probe = document.getElementById('probe');
+const probeShaft = document.getElementById('probe-shaft');
+const probeTip = document.getElementById('probe-tip');
+const texLabel = document.getElementById('tex-label');
 
+// ---- State ----
+let W = 0, H = 0;
+let probeX = 0.5; // 0-1 normalized
+let probeY = 0;   // surface contact Y (fixed at surface level)
+let surfaceY = 0; // Y where probe meets surface
+let sensorOn = false;
+
+let rawAccelX = 0, smoothAccelX = 0;
+let velX = 0, posX = 0.5; // integrated position
+
+let currentTexture = 0;
+const TEXTURES = ['Smooth','Sand','Grain','Bumpy','Rough'];
+
+// Probe振動状態
+let vibX = 0, vibY = 0;
+let vibVX = 0, vibVY = 0;
+let probeSpeed = 0;
+let lastPosX = 0.5;
+
+// contact ring animation
+let ringFrames = [];
+
+// ---- Resize ----
 function resize() {
-  const dpr = window.devicePixelRatio || 1;
-  const w = window.innerWidth;
-  const h = window.innerHeight - 48;
-  cv.width = w * dpr;
-  cv.height = h * dpr;
-  cv.style.width = w + 'px';
-  cv.style.height = h + 'px';
-  ctx.scale(dpr, dpr);
+  W = window.innerWidth;
+  H = window.innerHeight;
+  surfCv.width = W;
+  surfCv.height = H;
+  surfaceY = H * 0.52; // 画面中央やや下が接触面
+  probeShaft.style.height = surfaceY + 'px';
+  probe.style.top = '0px';
+  drawSurface();
 }
 resize();
 window.addEventListener('resize', resize);
 
-function setTool(t) {
-  tool = t;
-  document.getElementById('btn-pencil').className = t === 'pencil' ? 'active' : '';
-  document.getElementById('btn-pen').className = t === 'pen' ? 'active' : '';
+// ---- Surface rendering ----
+function drawSurface() {
+  sCtx.clearRect(0, 0, W, H);
+
+  // 表面テクスチャゾーン（画面全体）
+  const tx = currentTexture;
+
+  // 背景（表面）
+  const surfGrad = sCtx.createLinearGradient(0, surfaceY - 40, 0, surfaceY + 80);
+  surfGrad.addColorStop(0, 'rgba(255,255,255,0)');
+  surfGrad.addColorStop(0.3, texColors[tx][0]);
+  surfGrad.addColorStop(1, texColors[tx][1]);
+  sCtx.fillStyle = surfGrad;
+  sCtx.fillRect(0, surfaceY - 40, W, H);
+
+  // テクスチャパターン描画
+  drawTexturePattern(tx, surfaceY);
+
+  // 表面ラインのハイライト
+  sCtx.beginPath();
+  sCtx.moveTo(0, surfaceY);
+  sCtx.lineTo(W, surfaceY);
+  sCtx.strokeStyle = texColors[tx][2];
+  sCtx.lineWidth = 1;
+  sCtx.stroke();
 }
 
-function clearCanvas() {
-  const dpr = window.devicePixelRatio || 1;
-  ctx.clearRect(0, 0, cv.width / dpr, cv.height / dpr);
+const texColors = [
+  // Smooth
+  ['rgba(180,190,200,0.25)','rgba(100,110,130,0.6)','rgba(220,225,235,0.6)'],
+  // Sand
+  ['rgba(200,175,130,0.3)','rgba(150,120,80,0.65)','rgba(220,200,155,0.6)'],
+  // Grain
+  ['rgba(160,140,110,0.3)','rgba(100,80,55,0.65)','rgba(200,180,140,0.6)'],
+  // Bumpy
+  ['rgba(140,160,140,0.25)','rgba(80,100,80,0.6)','rgba(180,200,175,0.55)'],
+  // Rough
+  ['rgba(160,140,140,0.3)','rgba(100,80,80,0.65)','rgba(200,175,170,0.6)'],
+];
+
+function drawTexturePattern(tx, sy) {
+  sCtx.save();
+  sCtx.globalAlpha = 0.35;
+
+  if (tx === 0) { // Smooth: 細かい水平ライン
+    for (let y = sy; y < H; y += 6) {
+      sCtx.beginPath();
+      sCtx.moveTo(0, y);
+      sCtx.lineTo(W, y);
+      sCtx.strokeStyle = 'rgba(255,255,255,0.12)';
+      sCtx.lineWidth = 0.5;
+      sCtx.stroke();
+    }
+  } else if (tx === 1) { // Sand: ランダム粒
+    for (let i = 0; i < 400; i++) {
+      const x = Math.random() * W;
+      const y = sy + Math.random() * (H - sy);
+      const r = 0.5 + Math.random() * 1.5;
+      sCtx.beginPath();
+      sCtx.arc(x, y, r, 0, Math.PI * 2);
+      sCtx.fillStyle = `rgba(${200 + Math.random()*30|0},${170+Math.random()*20|0},${120+Math.random()*20|0},0.5)`;
+      sCtx.fill();
+    }
+  } else if (tx === 2) { // Grain: 木目
+    for (let i = 0; i < 12; i++) {
+      const yBase = sy + (H - sy) * (i / 12);
+      sCtx.beginPath();
+      sCtx.moveTo(0, yBase);
+      for (let x = 0; x < W; x += 8) {
+        sCtx.lineTo(x, yBase + Math.sin(x * 0.04 + i) * 4);
+      }
+      sCtx.strokeStyle = 'rgba(180,140,90,0.2)';
+      sCtx.lineWidth = 1.5;
+      sCtx.stroke();
+    }
+  } else if (tx === 3) { // Bumpy: 半球列
+    for (let y = sy + 14; y < H; y += 22) {
+      for (let x = 10; x < W; x += 20) {
+        const rad = sCtx.createRadialGradient(x, y, 0, x, y, 9);
+        rad.addColorStop(0, 'rgba(255,255,255,0.3)');
+        rad.addColorStop(0.5, 'rgba(150,175,150,0.1)');
+        rad.addColorStop(1, 'rgba(0,0,0,0)');
+        sCtx.beginPath();
+        sCtx.arc(x, y, 9, 0, Math.PI * 2);
+        sCtx.fillStyle = rad;
+        sCtx.fill();
+      }
+    }
+  } else if (tx === 4) { // Rough: 不規則クラック
+    for (let i = 0; i < 30; i++) {
+      const x0 = Math.random() * W;
+      const y0 = sy + Math.random() * (H - sy);
+      sCtx.beginPath();
+      sCtx.moveTo(x0, y0);
+      let cx = x0, cy = y0;
+      for (let s = 0; s < 4; s++) {
+        cx += (Math.random() - 0.5) * 30;
+        cy += Math.random() * 15;
+        sCtx.lineTo(cx, cy);
+      }
+      sCtx.strokeStyle = 'rgba(80,60,60,0.3)';
+      sCtx.lineWidth = 0.8;
+      sCtx.stroke();
+    }
+  }
+  sCtx.restore();
 }
 
-function getPos(e) {
-  const r = cv.getBoundingClientRect();
-  const s = e.touches ? e.touches[0] : e;
-  return {
-    x: s.clientX - r.left,
-    y: s.clientY - r.top
-  };
-}
+// ---- Texture reaction ----
+// 各テクスチャの振動特性
+const texProps = [
+  { freq: 0.8, amp: 0.6, damp: 0.82, scatter: 0.3,  ringStyle: 'concentric' }, // Smooth
+  { freq: 1.8, amp: 2.2, damp: 0.70, scatter: 2.0,  ringStyle: 'scatter'    }, // Sand
+  { freq: 1.2, amp: 1.5, damp: 0.75, scatter: 1.0,  ringStyle: 'lines'      }, // Grain
+  { freq: 2.5, amp: 3.5, damp: 0.65, scatter: 1.5,  ringStyle: 'pulse'      }, // Bumpy
+  { freq: 3.0, amp: 5.0, damp: 0.55, scatter: 3.0,  ringStyle: 'burst'      }, // Rough
+];
 
-function getStrokeProps(speed) {
-  const ax = Math.abs(smoothX);
+// ---- Contact ring canvas ----
+function drawContactEffect(px, py, speed, tx) {
+  cCtx.clearRect(0, 0, 120, 120);
+  const p = texProps[tx];
+  const intensity = Math.min(1, speed * 0.12 + 0.1);
+  const cx = 60, cy = 60;
 
-  if (tool === 'pen') {
-    return {
-      width: Math.max(0.8, 2.0 - speed * 0.05),
-      opacity: 0.88,
-      grain: false
-    };
+  if (p.ringStyle === 'concentric') {
+    for (let i = 1; i <= 3; i++) {
+      const r = 8 + i * 12 * intensity;
+      cCtx.beginPath();
+      cCtx.arc(cx, cy, r, 0, Math.PI * 2);
+      cCtx.strokeStyle = `rgba(210,215,225,${0.4 * intensity / i})`;
+      cCtx.lineWidth = 0.8;
+      cCtx.stroke();
+    }
+
+  } else if (p.ringStyle === 'scatter') {
+    const n = Math.floor(8 + intensity * 18);
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = (8 + Math.random() * 24) * intensity;
+      const px2 = cx + Math.cos(a) * r;
+      const py2 = cy + Math.sin(a) * r;
+      cCtx.beginPath();
+      cCtx.arc(px2, py2, 0.5 + Math.random() * 1.5, 0, Math.PI * 2);
+      cCtx.fillStyle = `rgba(210,185,140,${0.5 * intensity})`;
+      cCtx.fill();
+    }
+
+  } else if (p.ringStyle === 'lines') {
+    for (let i = -3; i <= 3; i++) {
+      const y2 = cy + i * 6 * intensity;
+      const w = (24 - Math.abs(i) * 3) * intensity;
+      cCtx.beginPath();
+      cCtx.moveTo(cx - w, y2);
+      cCtx.lineTo(cx + w, y2);
+      cCtx.strokeStyle = `rgba(195,165,115,${0.4 * intensity / (Math.abs(i) + 1)})`;
+      cCtx.lineWidth = 1;
+      cCtx.stroke();
+    }
+
+  } else if (p.ringStyle === 'pulse') {
+    const phase = Date.now() * 0.008;
+    for (let i = 0; i < 5; i++) {
+      const r = (6 + i * 9 + Math.sin(phase + i) * 3) * intensity;
+      cCtx.beginPath();
+      cCtx.arc(cx, cy, r, 0, Math.PI * 2);
+      cCtx.strokeStyle = `rgba(175,200,170,${0.35 * intensity / (i + 1)})`;
+      cCtx.lineWidth = 1.2;
+      cCtx.stroke();
+    }
+
+  } else if (p.ringStyle === 'burst') {
+    const n = Math.floor(6 + intensity * 8);
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2 + vibX * 0.5;
+      const r1 = 6 * intensity;
+      const r2 = (12 + Math.random() * 20) * intensity;
+      cCtx.beginPath();
+      cCtx.moveTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1);
+      cCtx.lineTo(cx + Math.cos(a) * r2, cy + Math.sin(a) * r2);
+      cCtx.strokeStyle = `rgba(200,170,165,${0.5 * intensity})`;
+      cCtx.lineWidth = 0.8;
+      cCtx.stroke();
+    }
   }
 
-  // 鉛筆: 左右加速度で傾き＝ストローク幅が変わる
-  const tilt = Math.min(1, ax / 10);
-  const speedFactor = Math.max(0.25, 1 - speed * 0.055);
-  const width = (1.2 + tilt * 7) * speedFactor;
-  const opacity = Math.min(0.75, 0.2 + speedFactor * 0.55);
+  // 先端マーク
+  cCtx.beginPath();
+  cCtx.arc(cx, cy, 3, 0, Math.PI * 2);
+  cCtx.fillStyle = `rgba(255,252,240,${0.6 + intensity * 0.3})`;
+  cCtx.fill();
 
-  return { width: Math.max(0.4, width), opacity, grain: true, tilt, axSign: smoothX >= 0 ? 1 : -1 };
+  // position contact ring
+  const el = document.getElementById('contact-ring');
+  el.style.left = (px - 60) + 'px';
+  el.style.top  = (py - 60) + 'px';
 }
 
-function drawSegment(x1, y1, x2, y2, props) {
-  if (!props.grain) {
-    ctx.beginPath();
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.strokeStyle = `rgba(20,15,10,${props.opacity})`;
-    ctx.lineWidth = props.width;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.stroke();
-    return;
+// ---- Probe vibration physics ----
+function updateProbeVibration(speed, tx) {
+  const p = texProps[tx];
+  const force = speed * p.amp;
+
+  // 各テクスチャ固有のランダム外力
+  const noise = (Math.random() - 0.5) * force * p.scatter;
+  vibVX += noise;
+  vibVY += (Math.random() - 0.5) * force * p.scatter * 0.4;
+  // 減衰バネ
+  vibVX = (vibVX - vibX * p.freq) * p.damp;
+  vibVY = (vibVY - vibY * p.freq * 0.5) * p.damp;
+  vibX += vibVX;
+  vibY += vibVY;
+
+  // プローブ先端にオフセット反映
+  probeTip.style.transform = `translate(${vibX * 0.5}px, ${vibY * 0.3}px)`;
+
+  // 強度によるグロー
+  const glow = Math.min(18, speed * 2.5 + 4);
+  probeTip.style.boxShadow = `0 0 ${glow}px ${glow*0.4}px rgba(255,252,220,${Math.min(0.9, speed * 0.15 + 0.2)})`;
+}
+
+// ---- Animation loop ----
+let frame = 0;
+function loop() {
+  requestAnimationFrame(loop);
+  frame++;
+
+  // センサーOFFのときはマウス位置（デスクトップ）のみ
+  if (!sensorOn) {
+    // posXはmousemoveで更新
+  } else {
+    // 加速度を積分してposX更新
+    velX += smoothAccelX * 0.008;
+    velX *= 0.90; // 摩擦
+    posX += velX;
+    posX = Math.max(0.05, Math.min(0.95, posX));
   }
 
-  // 鉛筆: 粒状の複数スレッドで描く
-  const n = Math.max(2, Math.floor(2 + props.tilt * 10));
-  const angle = props.axSign * props.tilt * (Math.PI / 3) + Math.PI / 2;
+  const px = posX * W;
+  const py = surfaceY;
 
-  for (let i = 0; i < n; i++) {
-    if (Math.random() < 0.1) continue;
-    const t = (i - n / 2) * (props.width / n);
-    const ox = Math.cos(angle) * t;
-    const oy = Math.sin(angle) * t;
-    const jx = (Math.random() - 0.5) * 0.6;
-    const jy = (Math.random() - 0.5) * 0.6;
-    const op = props.opacity * (0.35 + Math.random() * 0.65);
+  // プローブ位置更新
+  probe.style.left = px + 'px';
 
-    ctx.beginPath();
-    ctx.moveTo(x1 + ox + jx, y1 + oy + jy);
-    ctx.lineTo(x2 + ox + jx, y2 + oy + jy);
-    ctx.strokeStyle = `rgba(30,22,12,${op})`;
-    ctx.lineWidth = Math.max(0.25, props.width / n * 1.4);
-    ctx.lineCap = 'round';
-    ctx.stroke();
+  // 速度計算
+  const dx = posX - lastPosX;
+  probeSpeed = Math.abs(dx) * W * 0.5;
+  lastPosX = posX;
+
+  // 振動
+  if (probeSpeed > 0.01 || Math.abs(vibX) > 0.1) {
+    updateProbeVibration(probeSpeed, currentTexture);
+  }
+
+  // コンタクトエフェクト
+  if (frame % 2 === 0) {
+    drawContactEffect(px, py, probeSpeed, currentTexture);
+  }
+
+  // 表面テクスチャの動的更新（Bumpy/Roughはアニメーション）
+  if ((currentTexture === 3 || currentTexture === 4) && frame % 4 === 0) {
+    drawSurface();
   }
 }
+loop();
 
-function onStart(e) {
-  e.preventDefault();
-  drawing = true;
-  const p = getPos(e);
-  lx = p.x; ly = p.y; lt = Date.now();
-  hideInfo();
+// ---- Texture select ----
+function setTexture(i) {
+  currentTexture = i;
+  texLabel.textContent = TEXTURES[i];
+  document.querySelectorAll('.ttab').forEach((t, j) => {
+    t.className = 'ttab' + (j === i ? ' active' : '');
+  });
+  drawSurface();
+  // reset vibration
+  vibX = vibY = vibVX = vibVY = 0;
 }
 
-function onMove(e) {
-  e.preventDefault();
-  if (!drawing) return;
-  const p = getPos(e);
-  const now = Date.now();
-  const dx = p.x - lx, dy = p.y - ly;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  const speed = dist / Math.max(1, now - lt) * 10;
-  drawSegment(lx, ly, p.x, p.y, getStrokeProps(speed));
-  lx = p.x; ly = p.y; lt = now;
-}
-
-function onEnd() { drawing = false; }
-
-cv.addEventListener('touchstart', onStart, { passive: false });
-cv.addEventListener('touchmove', onMove, { passive: false });
-cv.addEventListener('touchend', onEnd);
-cv.addEventListener('mousedown', onStart);
-cv.addEventListener('mousemove', onMove);
-cv.addEventListener('mouseup', onEnd);
-cv.addEventListener('mouseleave', onEnd);
-
-function requestMotion() {
-  const btn = document.getElementById('sensor-btn');
-
-  const onGrant = () => {
+// ---- Sensor ----
+function requestSensor() {
+  const btn = document.getElementById('sens-btn');
+  const start = () => {
     sensorOn = true;
     btn.textContent = 'センサー ON';
-    btn.className = 'linked';
-
+    btn.className = 'on';
     window.addEventListener('devicemotion', e => {
       const raw = (e.acceleration && e.acceleration.x != null)
         ? e.acceleration.x
         : (e.accelerationIncludingGravity ? e.accelerationIncludingGravity.x : 0);
-      accelX = raw || 0;
-      smoothX = smoothX * 0.72 + accelX * 0.28;
+      rawAccelX = (raw || 0);
+      smoothAccelX = smoothAccelX * 0.65 + rawAccelX * 0.35;
     });
   };
-
   if (typeof DeviceMotionEvent !== 'undefined' &&
       typeof DeviceMotionEvent.requestPermission === 'function') {
     DeviceMotionEvent.requestPermission().then(s => {
-      if (s === 'granted') onGrant();
-      else { btn.textContent = '許可が必要'; }
-    }).catch(() => { btn.textContent = 'エラー'; });
+      if (s === 'granted') start();
+      else btn.textContent = '許可が必要';
+    }).catch(() => btn.textContent = 'エラー');
   } else if (window.DeviceMotionEvent) {
-    onGrant();
+    start();
   } else {
-    btn.textContent = '非対応';
+    btn.textContent = '非対応（マウスで代用）';
   }
 }
 
-function hideInfo() {
-  const el = document.getElementById('info');
-  el.style.opacity = '0';
-}
+// ---- Mouse/Touch fallback ----
+document.addEventListener('mousemove', e => {
+  if (!sensorOn) {
+    posX = e.clientX / W;
+  }
+});
+
+document.addEventListener('touchmove', e => {
+  if (!sensorOn) {
+    posX = e.touches[0].clientX / W;
+  }
+}, { passive: true });
 </script>
 </body>
 </html>
