@@ -6,7 +6,7 @@
 <title>鉛筆</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;touch-action:none;background:#e8e4de}
+html,body{width:100%;height:100%;overflow:hidden;touch-action:none;background:#fff}
 canvas{position:fixed;inset:0;width:100%;height:100%}
 #cv-draw{z-index:1}
 #cv-pen {z-index:2}
@@ -15,29 +15,29 @@ canvas{position:fixed;inset:0;width:100%;height:100%}
   top:calc(24px + env(safe-area-inset-top));
   left:0;right:0;text-align:center;
   font:11px -apple-system,sans-serif;
-  color:rgba(60,55,50,.40);
+  color:rgba(0,0,0,.22);
   letter-spacing:.12em;pointer-events:none;
 }
 .ui{
   position:fixed;z-index:10;
   bottom:0;left:0;right:0;
   padding:10px 12px calc(14px + env(safe-area-inset-bottom));
-  background:linear-gradient(transparent,rgba(30,26,22,.88) 40%);
+  background:linear-gradient(transparent,rgba(0,0,0,.80) 40%);
 }
 .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
 .tab{
   padding:10px 4px;border-radius:10px;
-  border:1px solid rgba(255,255,255,.12);
-  background:transparent;color:rgba(255,255,255,.28);
+  border:1px solid rgba(255,255,255,.14);
+  background:transparent;color:rgba(255,255,255,.30);
   font:11px -apple-system,sans-serif;cursor:pointer;transition:all .15s;
 }
-.tab.active{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.45)}
+.tab.active{background:rgba(255,255,255,.12);color:#fff;border-color:rgba(255,255,255,.50)}
 #perm{
   position:fixed;z-index:10;top:50%;left:50%;
   transform:translate(-50%,-50%);
   padding:16px 32px;
-  border:1px solid rgba(60,55,50,.5);
-  background:rgba(232,228,222,.92);color:#333;
+  border:1px solid rgba(0,0,0,.28);
+  background:rgba(255,255,255,.95);color:#222;
   font:15px -apple-system,sans-serif;
   border-radius:100px;cursor:pointer;display:none;
 }
@@ -45,17 +45,13 @@ canvas{position:fixed;inset:0;width:100%;height:100%}
   position:fixed;z-index:10;top:calc(50% + 54px);
   left:0;right:0;text-align:center;
   font:11px -apple-system,sans-serif;
-  color:rgba(60,55,50,.38);display:none;
+  color:rgba(0,0,0,.28);display:none;
 }
 </style>
 </head>
 <body>
-
-<!-- Layer 1: persistent pencil marks -->
 <canvas id="cv-draw"></canvas>
-<!-- Layer 2: live pencil visual + dry trail -->
 <canvas id="cv-pen"></canvas>
-
 <div id="lbl">なめらか</div>
 <div class="ui">
   <div class="tabs">
@@ -69,27 +65,26 @@ canvas{position:fixed;inset:0;width:100%;height:100%}
 <p id="perm-sub">タップして傾きセンサーを許可</p>
 
 <script>
-// ── Canvas setup ─────────────────────────────────────────────────
 const cvD = document.getElementById('cv-draw');
 const ctxD = cvD.getContext('2d');
 const cvP = document.getElementById('cv-pen');
 const ctxP = cvP.getContext('2d');
 
-const BG = '#e8e4de'; // warm paper color
 let W, H;
-
 function resize(){
   W = cvD.width = cvP.width = window.innerWidth;
   H = cvD.height = cvP.height = window.innerHeight;
-  // Refill drawing layer background
-  ctxD.fillStyle = BG;
+  ctxD.fillStyle = '#fff';
   ctxD.fillRect(0, 0, W, H);
 }
 resize();
-window.addEventListener('resize', () => { resize(); resetPen(); });
+window.addEventListener('resize', () => { resize(); clearDrawing(); });
 
-// ── Surface configs (pencil physics on different paper) ───────────
-// fr = friction, gv = gravity scale, vb = vibration (rough)
+// Pencil tip fixed position: slightly left of center, upper-mid area
+function tipX(){ return W * 0.50; }
+function tipY(){ return H * 0.42; }
+
+// Surface configs
 const CFG = {
   clean: { name:'なめらか', fr:0.962, gv:0.38, vb:0   },
   bleed: { name:'にじみ',   fr:0.958, gv:0.34, vb:0   },
@@ -98,46 +93,40 @@ const CFG = {
 };
 let cur = 'clean', c = CFG.clean;
 
-// ── Pen state ────────────────────────────────────────────────────
-let bx, by, bvx, bvy;
-let prevX = null, prevY = null; // last drawn position (permanent layer)
-let dryTrail = [];              // time-based trail for 'dry' only
+// Paper velocity (the paper moves under the fixed tip)
+let pvx = 0, pvy = 0;
+let prevDrawX = null, prevDrawY = null;
+let dryTrail = [];
 let tiltX = 0, tiltY = 0;
 
-// Physical scale: iPhone screen ≈ 68mm wide
-// 1 CSS pixel ≈ 68/390 mm ≈ 0.174 mm
-// → 1mm ≈ 5.74 px  (used for realistic pencil size)
-function mmPx(){ return W / 68; }
-
-function resetPen(){
-  bx = W/2; by = H/2; bvx = 0; bvy = 0;
-  prevX = null; prevY = null;
+function clearDrawing(){
+  ctxD.fillStyle = '#fff';
+  ctxD.fillRect(0, 0, W, H);
+  pvx = 0; pvy = 0;
+  prevDrawX = null; prevDrawY = null;
   dryTrail = [];
 }
-resetPen();
 
-// ── Surface switch ───────────────────────────────────────────────
+function mmPx(){ return W / 68; }
+
+// Surface switch
 document.querySelectorAll('.tab').forEach(b => {
   b.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
     b.classList.add('active');
     cur = b.dataset.s; c = CFG[cur];
     document.getElementById('lbl').textContent = c.name;
-    // Clear drawing layer, reset pen
-    ctxD.fillStyle = BG;
-    ctxD.fillRect(0, 0, W, H);
-    resetPen();
+    clearDrawing();
   });
 });
 
-// ── Sensor ───────────────────────────────────────────────────────
+// Sensor
 function onOri(e){
   if (e.gamma == null) return;
   tiltX = Math.max(-1, Math.min(1, e.gamma       / 22));
   tiltY = Math.max(-1, Math.min(1, (e.beta - 30) / 22));
 }
 function setupOri(){ window.addEventListener('deviceorientation', onOri); }
-
 const pb = document.getElementById('perm');
 const ps = document.getElementById('perm-sub');
 if (typeof DeviceOrientationEvent !== 'undefined' &&
@@ -152,152 +141,144 @@ if (typeof DeviceOrientationEvent !== 'undefined' &&
   });
 } else { setupOri(); }
 
-// ── Physics ──────────────────────────────────────────────────────
+// Physics: paper moves under fixed tip
+// Tilt drives paper in opposite direction (tilting right → paper moves left → tip draws rightward on paper)
 function physics(dtMs){
   const n = dtMs / 16.67;
-  let ax = tiltX * c.gv;
-  let ay = tiltY * c.gv;
-  if (c.vb > 0 && Math.sqrt(bvx*bvx+bvy*bvy) > 0.1){
+  let ax = -tiltX * c.gv;
+  let ay = -tiltY * c.gv;
+  if (c.vb > 0 && Math.sqrt(pvx*pvx+pvy*pvy) > 0.1){
     ax += (Math.random()-.5) * c.vb;
     ay += (Math.random()-.5) * c.vb;
   }
   const fr = Math.pow(c.fr, n);
-  bvx = (bvx + ax * n) * fr;
-  bvy = (bvy + ay * n) * fr;
-  bx += bvx * n;
-  by += bvy * n;
-
-  // Hard boundary — pen stays on paper
-  const m = 2;
-  if (bx < m){ bx = m; bvx = 0; }
-  if (bx > W-m){ bx = W-m; bvx = 0; }
-  if (by < m){ by = m; bvy = 0; }
-  if (by > H-m){ by = H-m; bvy = 0; }
+  pvx = (pvx + ax * n) * fr;
+  pvy = (pvy + ay * n) * fr;
 }
 
-// ── Draw stroke to persistent layer ─────────────────────────────
+// Draw stroke on persistent layer at tip position
 function drawStroke(x0, y0, x1, y1){
   ctxD.save();
-  ctxD.lineCap = 'round';
-  ctxD.lineJoin = 'round';
+  ctxD.lineCap = 'round'; ctxD.lineJoin = 'round';
 
   if (cur === 'clean'){
     ctxD.beginPath(); ctxD.moveTo(x0,y0); ctxD.lineTo(x1,y1);
     ctxD.lineWidth = 1.8;
-    ctxD.strokeStyle = 'rgba(38,35,30,0.78)';
+    ctxD.strokeStyle = 'rgba(30,28,26,0.80)';
     ctxD.stroke();
   }
   else if (cur === 'bleed'){
+    // Halo bleed
     ctxD.beginPath(); ctxD.moveTo(x0,y0); ctxD.lineTo(x1,y1);
-    // Soft outer spread (ink bleeding into paper fibres)
-    ctxD.lineWidth = 7;
-    ctxD.strokeStyle = 'rgba(38,35,30,0.07)';
+    ctxD.lineWidth = 8;
+    ctxD.strokeStyle = 'rgba(30,28,26,0.06)';
     ctxD.stroke();
-    // Core graphite line
-    ctxD.lineWidth = 2;
-    ctxD.strokeStyle = 'rgba(38,35,30,0.72)';
+    // Core
+    ctxD.beginPath(); ctxD.moveTo(x0,y0); ctxD.lineTo(x1,y1);
+    ctxD.lineWidth = 2.0;
+    ctxD.strokeStyle = 'rgba(30,28,26,0.74)';
     ctxD.stroke();
   }
   else if (cur === 'rough'){
-    if (Math.random() < 0.24) { ctxD.restore(); return; } // skip ~24%
+    if (Math.random() < 0.24){ ctxD.restore(); return; }
     ctxD.beginPath(); ctxD.moveTo(x0,y0); ctxD.lineTo(x1,y1);
     ctxD.lineWidth = 1.0 + Math.random() * 2.2;
-    ctxD.strokeStyle = `rgba(38,35,30,${0.42 + Math.random()*0.36})`;
+    ctxD.strokeStyle = `rgba(30,28,26,${0.38 + Math.random()*0.40})`;
     ctxD.stroke();
   }
-  // 'dry' never draws to persistent layer — handled in dryTrail
-
   ctxD.restore();
 }
 
-// ── Add mark each frame ──────────────────────────────────────────
 function addMark(ts){
-  const moved = prevX !== null &&
-    Math.sqrt((bx-prevX)**2 + (by-prevY)**2) > 2;
+  const tx = tipX(), ty = tipY();
+  const speed = Math.sqrt(pvx*pvx + pvy*pvy);
+  const moving = speed > 0.18;
 
   if (cur === 'dry'){
-    const last = dryTrail[dryTrail.length-1];
-    if (!last || Math.sqrt((bx-last.x)**2+(by-last.y)**2) > 2){
-      dryTrail.push({x:bx, y:by, t:ts});
-      if (dryTrail.length > 600) dryTrail.shift();
-      while (dryTrail.length>0 && ts-dryTrail[0].t > 2400) dryTrail.shift();
+    if (moving){
+      const last = dryTrail[dryTrail.length-1];
+      if (!last || Math.sqrt((tx-last.x)**2+(ty-last.y)**2) > 1){
+        dryTrail.push({x:tx, y:ty, t:ts});
+        if (dryTrail.length > 800) dryTrail.shift();
+      }
     }
+    while (dryTrail.length > 0 && ts - dryTrail[0].t > 2600) dryTrail.shift();
   } else {
-    if (prevX !== null && moved) drawStroke(prevX, prevY, bx, by);
+    if (moving && prevDrawX !== null)
+      drawStroke(prevDrawX, prevDrawY, tx, ty);
   }
 
-  if (moved || prevX === null){ prevX = bx; prevY = by; }
+  if (moving || prevDrawX === null){ prevDrawX = tx; prevDrawY = ty; }
+  else if (!moving){ prevDrawX = tx; prevDrawY = ty; }
 }
 
-// ── Pencil visual ────────────────────────────────────────────────
-// Pencil drawn at realistic scale: 50mm visible shaft + 8mm graphite taper
-// at 55° from horizontal, tip at (bx, by), body extending lower-right
-
+// ── Pencil visual (fixed) ─────────────────────────────────────────
 const PEN_ANGLE = 55 * Math.PI / 180;
 
 function drawPencil(){
-  const mp = mmPx(); // px per mm
-  const shaftLen  = 50 * mp;  // 50mm visible = ~287px
-  const shaftW    = 5.4 * mp; // 5.4mm diameter = ~31px
-  const taperLen  = 7  * mp;  // 7mm graphite taper = ~40px
+  const mp = mmPx();
+  const shaftLen = 52 * mp;
+  const shaftW   =  5.2 * mp;
+  const taperLen =  7  * mp;
+
+  const tx = tipX(), ty = tipY();
 
   ctxP.save();
-  ctxP.translate(bx, by);
+  ctxP.translate(tx, ty);
   ctxP.rotate(PEN_ANGLE);
 
-  // ── Graphite taper (origin = tip contact point) ──
-  const tapGrad = ctxP.createLinearGradient(0, 0, taperLen, 0);
+  // Taper (graphite)
+  const tapGrad = ctxP.createLinearGradient(0,0,taperLen,0);
   tapGrad.addColorStop(0,    '#141414');
-  tapGrad.addColorStop(0.55, '#5c5c5c');
-  tapGrad.addColorStop(1,    '#929292');
+  tapGrad.addColorStop(0.55, '#5a5a5a');
+  tapGrad.addColorStop(1,    '#909090');
   ctxP.beginPath();
   ctxP.moveTo(0, 0);
-  ctxP.lineTo(taperLen * 0.25, -shaftW * 0.14);
-  ctxP.lineTo(taperLen,        -shaftW * 0.50);
-  ctxP.lineTo(taperLen,         shaftW * 0.50);
-  ctxP.lineTo(taperLen * 0.25,  shaftW * 0.14);
+  ctxP.lineTo(taperLen*0.25, -shaftW*0.14);
+  ctxP.lineTo(taperLen,      -shaftW*0.50);
+  ctxP.lineTo(taperLen,       shaftW*0.50);
+  ctxP.lineTo(taperLen*0.25,  shaftW*0.14);
   ctxP.closePath();
   ctxP.fillStyle = tapGrad;
   ctxP.fill();
 
-  // ── Wood shaft ──────────────────────────────────
-  const woodTop = ctxP.createLinearGradient(0, -shaftW/2, 0, shaftW/2);
-  woodTop.addColorStop(0,    '#f2f0ee'); // highlight edge
-  woodTop.addColorStop(0.18, '#dedbd7');
-  woodTop.addColorStop(0.50, '#cbc8c3');
-  woodTop.addColorStop(0.82, '#b8b5af');
-  woodTop.addColorStop(1,    '#a6a39d'); // shadow edge
-
+  // Wood shaft
+  const woodGrad = ctxP.createLinearGradient(0,-shaftW/2,0,shaftW/2);
+  woodGrad.addColorStop(0,    '#f4f2f0');
+  woodGrad.addColorStop(0.18, '#e0deda');
+  woodGrad.addColorStop(0.50, '#ccc9c4');
+  woodGrad.addColorStop(0.82, '#b9b6b0');
+  woodGrad.addColorStop(1,    '#a8a49e');
   ctxP.beginPath();
   ctxP.rect(taperLen, -shaftW/2, shaftLen, shaftW);
-  ctxP.fillStyle = woodTop;
+  ctxP.fillStyle = woodGrad;
   ctxP.fill();
 
-  // Facet lines (simulating hexagonal pencil cross-section)
-  const facetY = shaftW * 0.23;
-  [[facetY, 'rgba(255,255,255,0.32)'], [-facetY, 'rgba(90,88,84,0.18)']].forEach(([y, col]) => {
+  // Facet lines
+  const fy = shaftW * 0.23;
+  [[fy,'rgba(255,255,255,0.35)'],[-fy,'rgba(80,76,72,0.18)']].forEach(([y,col])=>{
     ctxP.beginPath();
-    ctxP.moveTo(taperLen + shaftW * 0.3, y);
-    ctxP.lineTo(taperLen + shaftLen * 0.98, y);
+    ctxP.moveTo(taperLen + shaftW*0.3, y);
+    ctxP.lineTo(taperLen + shaftLen*0.97, y);
     ctxP.strokeStyle = col;
     ctxP.lineWidth = 0.8;
     ctxP.stroke();
   });
 
-  // Shaft outline
+  // Outline
   ctxP.beginPath();
   ctxP.rect(taperLen, -shaftW/2, shaftLen, shaftW);
-  ctxP.strokeStyle = 'rgba(110,106,100,0.35)';
+  ctxP.strokeStyle = 'rgba(100,96,90,0.30)';
   ctxP.lineWidth = 0.6;
   ctxP.stroke();
 
   ctxP.restore();
 
-  // Graphite contact dot at tip
+  // Tip dot
   ctxP.save();
-  ctxP.translate(bx, by);
+  ctxP.translate(tx, ty);
   ctxP.beginPath();
-  ctxP.arc(0, 0, 1.5, 0, Math.PI * 2);
+  ctxP.arc(0, 0, 1.4, 0, Math.PI*2);
   ctxP.fillStyle = '#0c0c0c';
   ctxP.fill();
   ctxP.restore();
@@ -305,21 +286,19 @@ function drawPencil(){
 
 // ── Render ───────────────────────────────────────────────────────
 function draw(ts){
-  // Pen canvas: clear each frame
-  ctxP.clearRect(0, 0, W, H);
+  ctxP.clearRect(0,0,W,H);
 
-  // かわく trail (fades with age) drawn on pen layer
+  // かわく: ephemeral trail on pen layer
   if (cur === 'dry' && dryTrail.length > 1){
     ctxP.lineCap = 'round'; ctxP.lineJoin = 'round';
     for (let i = 1; i < dryTrail.length; i++){
       const p0 = dryTrail[i-1], p1 = dryTrail[i];
-      const age = ts - p0.t;
-      const a = Math.max(0, 0.80 - age / 2200);
+      const a = Math.max(0, 0.78 - (ts - p0.t) / 2400);
       if (a < 0.01) continue;
       ctxP.beginPath();
-      ctxP.moveTo(p0.x, p0.y); ctxP.lineTo(p1.x, p1.y);
+      ctxP.moveTo(p0.x,p0.y); ctxP.lineTo(p1.x,p1.y);
       ctxP.lineWidth = 1.8;
-      ctxP.strokeStyle = `rgba(38,35,30,${a})`;
+      ctxP.strokeStyle = `rgba(30,28,26,${a})`;
       ctxP.stroke();
     }
   }
@@ -327,7 +306,7 @@ function draw(ts){
   drawPencil();
 }
 
-// ── Main loop ────────────────────────────────────────────────────
+// ── Loop ─────────────────────────────────────────────────────────
 let prevTs = 0;
 function tick(ts){
   const dtMs = prevTs ? Math.min(ts-prevTs, 50) : 16.67;
