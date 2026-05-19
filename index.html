@@ -2,299 +2,270 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>鉛筆</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>鉛筆 / ペン</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;overflow:hidden;touch-action:none;background:#fff}
-canvas{position:fixed;inset:0;width:100%;height:100%}
-#cv-draw{z-index:1}
-#cv-pen {z-index:2}
-.ui{
-  position:fixed;z-index:10;
-  top:0;left:0;right:0;
-  padding:calc(10px + env(safe-area-inset-top)) 12px 10px;
-  background:linear-gradient(rgba(255,255,255,.95) 72%, transparent);
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #fff; }
+
+#ui {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 14px;
+  gap: 10px;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid #e0e0e0;
+  z-index: 10;
 }
-.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
-.tab{
-  padding:8px 4px;border-radius:8px;
-  border:1px solid rgba(0,0,0,.10);
-  background:transparent;color:rgba(0,0,0,.28);
-  font:11px -apple-system,sans-serif;cursor:pointer;transition:all .15s;
+
+.tools { display: flex; gap: 6px; }
+
+button {
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid #ccc;
+  background: #fff;
+  border-radius: 16px;
+  font-size: 13px;
+  color: #333;
+  cursor: pointer;
+  font-family: -apple-system, sans-serif;
+  transition: background 0.12s, color 0.12s;
 }
-.tab.active{
-  background:rgba(0,0,0,.06);
-  color:rgba(0,0,0,.80);
-  border-color:rgba(0,0,0,.28);
+button.active {
+  background: #222;
+  color: #fff;
+  border-color: #222;
 }
-#perm{
-  position:fixed;z-index:10;top:50%;left:50%;
-  transform:translate(-50%,-50%);
-  padding:16px 32px;
-  border:1px solid rgba(0,0,0,.28);
-  background:#fff;color:#222;
-  font:15px -apple-system,sans-serif;
-  border-radius:100px;cursor:pointer;display:none;
+button.icon {
+  padding: 0;
+  width: 32px;
+  font-size: 15px;
+  color: #888;
+  border-color: transparent;
+  background: transparent;
 }
-#perm-sub{
-  position:fixed;z-index:10;top:calc(50% + 54px);
-  left:0;right:0;text-align:center;
-  font:11px -apple-system,sans-serif;
-  color:rgba(0,0,0,.28);display:none;
+button.icon:hover { background: #f0f0f0; }
+
+#sensor-btn {
+  font-size: 11px;
+  padding: 0 10px;
+  color: #888;
+  border-color: #ddd;
+}
+#sensor-btn.linked {
+  color: #2a9d4e;
+  border-color: #2a9d4e;
+  background: #f0faf4;
+}
+
+#info {
+  position: fixed;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  color: #bbb;
+  font-family: -apple-system, sans-serif;
+  pointer-events: none;
+  white-space: nowrap;
+  transition: opacity 0.4s;
+}
+
+canvas {
+  position: fixed;
+  top: 48px; left: 0;
+  width: 100%;
+  height: calc(100% - 48px);
+  touch-action: none;
+  background: #fff;
+  cursor: crosshair;
 }
 </style>
 </head>
 <body>
-<canvas id="cv-draw"></canvas>
-<canvas id="cv-pen"></canvas>
-<div class="ui">
-  <div class="tabs">
-    <button class="tab active" data-s="clean">なめらか</button>
-    <button class="tab"        data-s="bleed">にじみ</button>
-    <button class="tab"        data-s="dry">かわく</button>
-    <button class="tab"        data-s="rough">かすれ</button>
+
+<div id="ui">
+  <div class="tools">
+    <button class="active" id="btn-pencil" onclick="setTool('pencil')">鉛筆</button>
+    <button id="btn-pen" onclick="setTool('pen')">ペン</button>
   </div>
+  <button id="sensor-btn" onclick="requestMotion()">センサー OFF</button>
+  <button class="icon" onclick="clearCanvas()" title="消去">✕</button>
 </div>
-<button id="perm">センサーを有効にする</button>
-<p id="perm-sub">タップして傾きセンサーを許可</p>
+
+<canvas id="cv"></canvas>
+
+<div id="info">スマホを左右に動かしながら描いてください</div>
 
 <script>
-const cvD = document.getElementById('cv-draw');
-const ctxD = cvD.getContext('2d');
-const cvP = document.getElementById('cv-pen');
-const ctxP = cvP.getContext('2d');
-let W, H;
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let tool = 'pencil';
+let drawing = false;
+let lx = 0, ly = 0, lt = 0;
+let accelX = 0, smoothX = 0;
+let sensorOn = false;
+let infoTimer = null;
 
-function resize(){
-  W = cvD.width = cvP.width = window.innerWidth;
-  H = cvD.height = cvP.height = window.innerHeight;
-  ctxD.fillStyle = '#fff';
-  ctxD.fillRect(0, 0, W, H);
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = window.innerWidth;
+  const h = window.innerHeight - 48;
+  cv.width = w * dpr;
+  cv.height = h * dpr;
+  cv.style.width = w + 'px';
+  cv.style.height = h + 'px';
+  ctx.scale(dpr, dpr);
 }
 resize();
-window.addEventListener('resize', () => { resize(); resetDraw(); });
+window.addEventListener('resize', resize);
 
-const CFG = {
-  clean: { fr:0.962, gv:0.38, vb:0   },
-  bleed: { fr:0.958, gv:0.34, vb:0   },
-  dry:   { fr:0.962, gv:0.38, vb:0   },
-  rough: { fr:0.950, gv:0.32, vb:0.6 }
-};
-let cur = 'clean', c = CFG.clean;
-
-// Virtual tip position (moves with tilt; pencil visual stays fixed)
-let tx, ty, tvx, tvy;
-let prevTx = null, prevTy = null;
-let dryTrail = [];
-let tiltX = 0, tiltY = 0;
-
-function mmPx(){ return W / 68; }
-
-// Fixed pencil tip anchor — center-ish of screen
-function tipAnchor(){ return { x: W * 0.42, y: H * 0.50 }; }
-
-function resetDraw(){
-  const a = tipAnchor();
-  tx = a.x; ty = a.y; tvx = 0; tvy = 0;
-  prevTx = null; prevTy = null;
-  dryTrail = [];
+function setTool(t) {
+  tool = t;
+  document.getElementById('btn-pencil').className = t === 'pencil' ? 'active' : '';
+  document.getElementById('btn-pen').className = t === 'pen' ? 'active' : '';
 }
-resetDraw();
 
-document.querySelectorAll('.tab').forEach(b => {
-  b.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
-    b.classList.add('active');
-    cur = b.dataset.s; c = CFG[cur];
-    ctxD.fillStyle = '#fff';
-    ctxD.fillRect(0, 0, W, H);
-    resetDraw();
-  });
-});
-
-// Sensor
-function onOri(e){
-  if (e.gamma == null) return;
-  tiltX = Math.max(-1, Math.min(1, e.gamma       / 22));
-  tiltY = Math.max(-1, Math.min(1, (e.beta - 30) / 22));
+function clearCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  ctx.clearRect(0, 0, cv.width / dpr, cv.height / dpr);
 }
-function setupOri(){ window.addEventListener('deviceorientation', onOri); }
-const pb = document.getElementById('perm');
-const ps = document.getElementById('perm-sub');
-if (typeof DeviceOrientationEvent !== 'undefined' &&
-    typeof DeviceOrientationEvent.requestPermission === 'function'){
-  pb.style.display = 'block'; ps.style.display = 'block';
-  pb.addEventListener('click', async () => {
-    try {
-      if (await DeviceOrientationEvent.requestPermission() === 'granted'){
-        setupOri(); pb.style.display='none'; ps.style.display='none';
-      }
-    } catch(e){ pb.textContent='再度タップ'; }
-  });
-} else { setupOri(); }
 
-// Physics — tip moves, pencil stays fixed
-function physics(dtMs){
-  const n = dtMs / 16.67;
-  let ax = tiltX * c.gv;
-  let ay = tiltY * c.gv;
-  if (c.vb > 0 && Math.sqrt(tvx*tvx + tvy*tvy) > 0.1){
-    ax += (Math.random()-.5) * c.vb;
-    ay += (Math.random()-.5) * c.vb;
+function getPos(e) {
+  const r = cv.getBoundingClientRect();
+  const s = e.touches ? e.touches[0] : e;
+  return {
+    x: s.clientX - r.left,
+    y: s.clientY - r.top
+  };
+}
+
+function getStrokeProps(speed) {
+  const ax = Math.abs(smoothX);
+
+  if (tool === 'pen') {
+    return {
+      width: Math.max(0.8, 2.0 - speed * 0.05),
+      opacity: 0.88,
+      grain: false
+    };
   }
-  const fr = Math.pow(c.fr, n);
-  tvx = (tvx + ax * n) * fr;
-  tvy = (tvy + ay * n) * fr;
-  tx += tvx * n;
-  ty += tvy * n;
-  const m = 2;
-  if (tx < m){ tx = m; tvx = 0; }
-  if (tx > W-m){ tx = W-m; tvx = 0; }
-  if (ty < m){ ty = m; tvy = 0; }
-  if (ty > H-m){ ty = H-m; tvy = 0; }
+
+  // 鉛筆: 左右加速度で傾き＝ストローク幅が変わる
+  const tilt = Math.min(1, ax / 10);
+  const speedFactor = Math.max(0.25, 1 - speed * 0.055);
+  const width = (1.2 + tilt * 7) * speedFactor;
+  const opacity = Math.min(0.75, 0.2 + speedFactor * 0.55);
+
+  return { width: Math.max(0.4, width), opacity, grain: true, tilt, axSign: smoothX >= 0 ? 1 : -1 };
 }
 
-// Stroke to persistent layer
-function drawStroke(x0, y0, x1, y1){
-  ctxD.save(); ctxD.lineCap = 'round'; ctxD.lineJoin = 'round';
-  if (cur === 'clean'){
-    ctxD.beginPath(); ctxD.moveTo(x0,y0); ctxD.lineTo(x1,y1);
-    ctxD.lineWidth = 1.8;
-    ctxD.strokeStyle = 'rgba(38,35,30,0.78)';
-    ctxD.stroke();
-  } else if (cur === 'bleed'){
-    ctxD.beginPath(); ctxD.moveTo(x0,y0); ctxD.lineTo(x1,y1);
-    ctxD.lineWidth = 7;
-    ctxD.strokeStyle = 'rgba(38,35,30,0.06)';
-    ctxD.stroke();
-    ctxD.beginPath(); ctxD.moveTo(x0,y0); ctxD.lineTo(x1,y1);
-    ctxD.lineWidth = 2.0;
-    ctxD.strokeStyle = 'rgba(38,35,30,0.72)';
-    ctxD.stroke();
-  } else if (cur === 'rough'){
-    if (Math.random() < 0.24){ ctxD.restore(); return; }
-    ctxD.beginPath(); ctxD.moveTo(x0,y0); ctxD.lineTo(x1,y1);
-    ctxD.lineWidth = 1.0 + Math.random() * 2.2;
-    ctxD.strokeStyle = `rgba(38,35,30,${0.42 + Math.random()*0.36})`;
-    ctxD.stroke();
+function drawSegment(x1, y1, x2, y2, props) {
+  if (!props.grain) {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.strokeStyle = `rgba(20,15,10,${props.opacity})`;
+    ctx.lineWidth = props.width;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+    return;
   }
-  ctxD.restore();
+
+  // 鉛筆: 粒状の複数スレッドで描く
+  const n = Math.max(2, Math.floor(2 + props.tilt * 10));
+  const angle = props.axSign * props.tilt * (Math.PI / 3) + Math.PI / 2;
+
+  for (let i = 0; i < n; i++) {
+    if (Math.random() < 0.1) continue;
+    const t = (i - n / 2) * (props.width / n);
+    const ox = Math.cos(angle) * t;
+    const oy = Math.sin(angle) * t;
+    const jx = (Math.random() - 0.5) * 0.6;
+    const jy = (Math.random() - 0.5) * 0.6;
+    const op = props.opacity * (0.35 + Math.random() * 0.65);
+
+    ctx.beginPath();
+    ctx.moveTo(x1 + ox + jx, y1 + oy + jy);
+    ctx.lineTo(x2 + ox + jx, y2 + oy + jy);
+    ctx.strokeStyle = `rgba(30,22,12,${op})`;
+    ctx.lineWidth = Math.max(0.25, props.width / n * 1.4);
+    ctx.lineCap = 'round';
+    ctx.stroke();
+  }
 }
 
-function addMark(ts){
-  const moved = prevTx !== null &&
-    Math.sqrt((tx-prevTx)**2 + (ty-prevTy)**2) > 2;
-  if (cur === 'dry'){
-    const last = dryTrail[dryTrail.length-1];
-    if (!last || Math.sqrt((tx-last.x)**2+(ty-last.y)**2) > 2){
-      dryTrail.push({x:tx, y:ty, t:ts});
-      if (dryTrail.length > 600) dryTrail.shift();
-      while (dryTrail.length > 0 && ts-dryTrail[0].t > 2400) dryTrail.shift();
-    }
+function onStart(e) {
+  e.preventDefault();
+  drawing = true;
+  const p = getPos(e);
+  lx = p.x; ly = p.y; lt = Date.now();
+  hideInfo();
+}
+
+function onMove(e) {
+  e.preventDefault();
+  if (!drawing) return;
+  const p = getPos(e);
+  const now = Date.now();
+  const dx = p.x - lx, dy = p.y - ly;
+  const dist = Math.sqrt(dx * dx + dy * dy);
+  const speed = dist / Math.max(1, now - lt) * 10;
+  drawSegment(lx, ly, p.x, p.y, getStrokeProps(speed));
+  lx = p.x; ly = p.y; lt = now;
+}
+
+function onEnd() { drawing = false; }
+
+cv.addEventListener('touchstart', onStart, { passive: false });
+cv.addEventListener('touchmove', onMove, { passive: false });
+cv.addEventListener('touchend', onEnd);
+cv.addEventListener('mousedown', onStart);
+cv.addEventListener('mousemove', onMove);
+cv.addEventListener('mouseup', onEnd);
+cv.addEventListener('mouseleave', onEnd);
+
+function requestMotion() {
+  const btn = document.getElementById('sensor-btn');
+
+  const onGrant = () => {
+    sensorOn = true;
+    btn.textContent = 'センサー ON';
+    btn.className = 'linked';
+
+    window.addEventListener('devicemotion', e => {
+      const raw = (e.acceleration && e.acceleration.x != null)
+        ? e.acceleration.x
+        : (e.accelerationIncludingGravity ? e.accelerationIncludingGravity.x : 0);
+      accelX = raw || 0;
+      smoothX = smoothX * 0.72 + accelX * 0.28;
+    });
+  };
+
+  if (typeof DeviceMotionEvent !== 'undefined' &&
+      typeof DeviceMotionEvent.requestPermission === 'function') {
+    DeviceMotionEvent.requestPermission().then(s => {
+      if (s === 'granted') onGrant();
+      else { btn.textContent = '許可が必要'; }
+    }).catch(() => { btn.textContent = 'エラー'; });
+  } else if (window.DeviceMotionEvent) {
+    onGrant();
   } else {
-    if (prevTx !== null && moved) drawStroke(prevTx, prevTy, tx, ty);
+    btn.textContent = '非対応';
   }
-  if (moved || prevTx === null){ prevTx = tx; prevTy = ty; }
 }
 
-// Pencil drawn at fixed position
-const PEN_ANGLE = 55 * Math.PI / 180;
-
-function drawPencil(){
-  const mp = mmPx();
-  const shaftLen = 50 * mp;
-  const shaftW   = 5.4 * mp;
-  const taperLen = 7   * mp;
-  const a = tipAnchor();
-
-  ctxP.save();
-  ctxP.translate(a.x, a.y);
-  ctxP.rotate(PEN_ANGLE);
-
-  // Taper
-  const tapGrad = ctxP.createLinearGradient(0, 0, taperLen, 0);
-  tapGrad.addColorStop(0,    '#141414');
-  tapGrad.addColorStop(0.55, '#5c5c5c');
-  tapGrad.addColorStop(1,    '#929292');
-  ctxP.beginPath();
-  ctxP.moveTo(0, 0);
-  ctxP.lineTo(taperLen * 0.25, -shaftW * 0.14);
-  ctxP.lineTo(taperLen,        -shaftW * 0.50);
-  ctxP.lineTo(taperLen,         shaftW * 0.50);
-  ctxP.lineTo(taperLen * 0.25,  shaftW * 0.14);
-  ctxP.closePath();
-  ctxP.fillStyle = tapGrad;
-  ctxP.fill();
-
-  // Shaft
-  const woodGrad = ctxP.createLinearGradient(0, -shaftW/2, 0, shaftW/2);
-  woodGrad.addColorStop(0,    '#f2f0ee');
-  woodGrad.addColorStop(0.18, '#dedbd7');
-  woodGrad.addColorStop(0.50, '#cbc8c3');
-  woodGrad.addColorStop(0.82, '#b8b5af');
-  woodGrad.addColorStop(1,    '#a6a39d');
-  ctxP.beginPath();
-  ctxP.rect(taperLen, -shaftW/2, shaftLen, shaftW);
-  ctxP.fillStyle = woodGrad;
-  ctxP.fill();
-
-  // Facet lines
-  [[shaftW*0.23,'rgba(255,255,255,0.32)'],[-shaftW*0.23,'rgba(90,88,84,0.18)']].forEach(([y,col])=>{
-    ctxP.beginPath();
-    ctxP.moveTo(taperLen + shaftW*0.3, y);
-    ctxP.lineTo(taperLen + shaftLen*0.98, y);
-    ctxP.strokeStyle = col; ctxP.lineWidth = 0.8; ctxP.stroke();
-  });
-
-  // Outline
-  ctxP.beginPath();
-  ctxP.rect(taperLen, -shaftW/2, shaftLen, shaftW);
-  ctxP.strokeStyle = 'rgba(110,106,100,0.35)';
-  ctxP.lineWidth = 0.6; ctxP.stroke();
-  ctxP.restore();
-
-  // Tip dot
-  ctxP.save();
-  ctxP.translate(a.x, a.y);
-  ctxP.beginPath();
-  ctxP.arc(0, 0, 1.5, 0, Math.PI*2);
-  ctxP.fillStyle = '#0c0c0c';
-  ctxP.fill();
-  ctxP.restore();
+function hideInfo() {
+  const el = document.getElementById('info');
+  el.style.opacity = '0';
 }
-
-function draw(ts){
-  ctxP.clearRect(0, 0, W, H);
-
-  // かわく fading trail
-  if (cur === 'dry' && dryTrail.length > 1){
-    ctxP.lineCap = 'round'; ctxP.lineJoin = 'round';
-    for (let i = 1; i < dryTrail.length; i++){
-      const p0 = dryTrail[i-1], p1 = dryTrail[i];
-      const age = ts - p0.t;
-      const a = Math.max(0, 0.78 - age/2200);
-      if (a < 0.01) continue;
-      ctxP.beginPath(); ctxP.moveTo(p0.x,p0.y); ctxP.lineTo(p1.x,p1.y);
-      ctxP.lineWidth = 1.8;
-      ctxP.strokeStyle = `rgba(38,35,30,${a})`;
-      ctxP.stroke();
-    }
-  }
-
-  drawPencil();
-}
-
-let prevTs = 0;
-function tick(ts){
-  const dtMs = prevTs ? Math.min(ts-prevTs, 50) : 16.67;
-  prevTs = ts;
-  physics(dtMs);
-  addMark(ts);
-  draw(ts);
-  requestAnimationFrame(tick);
-}
-requestAnimationFrame(tick);
 </script>
 </body>
 </html>
