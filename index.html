@@ -2,256 +2,181 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>Surface Haptics</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>水滴 — Y軸</title>
 <style>
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{width:100%;height:100%;background:#000;overflow:hidden;touch-action:none}
-canvas{position:fixed;inset:0;width:100%;height:100%}
-#lbl{
-  position:fixed;
-  top:calc(30px + env(safe-area-inset-top));
-  left:0;right:0;text-align:center;
-  font:12px -apple-system,sans-serif;
-  color:rgba(255,255,255,.20);
-  letter-spacing:.12em;pointer-events:none;
-}
-.ui{
-  position:fixed;bottom:0;left:0;right:0;
-  padding:10px 12px calc(16px + env(safe-area-inset-bottom));
-  background:linear-gradient(transparent,rgba(0,0,0,.92) 40%);
-}
-.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
-.tab{
-  padding:11px 4px;border-radius:10px;
-  border:1px solid rgba(255,255,255,.12);
-  background:transparent;color:rgba(255,255,255,.28);
-  font:11px -apple-system,sans-serif;cursor:pointer;transition:all .15s;
-}
-.tab.active{background:rgba(255,255,255,.1);color:#fff;border-color:rgba(255,255,255,.45)}
-#perm{
-  position:fixed;top:50%;left:50%;
-  transform:translate(-50%,-50%);
-  padding:16px 32px;
-  border:1px solid rgba(255,255,255,.38);
-  background:transparent;color:#fff;
-  font:15px -apple-system,sans-serif;
-  border-radius:100px;cursor:pointer;display:none;
-}
-#perm-sub{
-  position:fixed;top:calc(50% + 54px);
-  left:0;right:0;text-align:center;
-  font:11px -apple-system,sans-serif;
-  color:rgba(255,255,255,.2);display:none;
-}
+* { margin:0; padding:0; box-sizing:border-box; touch-action:none; user-select:none; -webkit-user-select:none; }
+body { background:#0c0c0c; height:100dvh; overflow:hidden; }
+canvas { display:block; width:100%; height:100dvh; }
+#hud { position:fixed; top:0; left:0; right:0; display:flex; justify-content:space-between;
+       padding:20px 22px 0; pointer-events:none; z-index:5; }
+.hl { font-size:9px; letter-spacing:4px; text-transform:uppercase; color:rgba(255,255,255,0.18);
+      font-family:-apple-system,sans-serif; }
+.hc { font-size:8px; letter-spacing:2px; color:rgba(255,255,255,0.09);
+      font-family:-apple-system,sans-serif; }
+#over { position:fixed; inset:0; background:#0c0c0c; display:flex; flex-direction:column;
+        align-items:center; justify-content:center; gap:28px; z-index:100; }
+.ot { font-size:10px; letter-spacing:8px; color:rgba(255,255,255,0.45); text-transform:uppercase;
+      font-family:-apple-system,sans-serif; }
+.od { font-size:11px; color:rgba(255,255,255,0.25); text-align:center; line-height:2.6;
+      font-family:-apple-system,sans-serif; }
+.obs { font-family:-apple-system,sans-serif; font-size:10px; letter-spacing:5px; text-transform:uppercase;
+       background:transparent; color:rgba(255,255,255,0.35);
+       border:1px solid rgba(255,255,255,0.15); padding:14px 40px; cursor:pointer; }
 </style>
 </head>
 <body>
-<canvas id="cv"></canvas>
-<div id="lbl">なめらか</div>
-<div class="ui">
-  <div class="tabs">
-    <button class="tab active" data-s="smooth">なめらか</button>
-    <button class="tab"        data-s="ice">氷</button>
-    <button class="tab"        data-s="rough">ざらざら</button>
-    <button class="tab"        data-s="sticky">粘着</button>
-  </div>
+<div id="hud">
+  <span class="hl">← 傾ける</span>
+  <span class="hc">水滴 · Y軸</span>
+  <span class="hl">傾ける →</span>
 </div>
-<button id="perm">センサーを有効にする</button>
-<p id="perm-sub">タップして傾きセンサーを許可</p>
-
+<canvas id="c"></canvas>
+<div id="over">
+  <div class="ot">水滴 — Y軸</div>
+  <div class="od">水滴は画面中央に固定されています<br>左右に傾けて通り過ぎると<br>吸い付いてポヨンと弾みます</div>
+  <button class="obs" id="sb">Start</button>
+</div>
 <script>
-const cv  = document.getElementById('cv');
-const ctx = cv.getContext('2d');
-let W, H;
-function resize(){ W = cv.width = window.innerWidth; H = cv.height = window.innerHeight; }
-resize();
-window.addEventListener('resize', () => { resize(); spawnBall(); });
+'use strict';
+const C=document.getElementById('c');
+const X=C.getContext('2d');
+function resize(){C.width=window.innerWidth; C.height=window.innerHeight;}
+resize(); window.addEventListener('resize',resize);
 
-// fr  : velocity multiplier per frame (1=no friction, 0=instant stop)
-// gv  : gravity scale
-// vb  : micro-vibration intensity for rough surfaces
-// dm  : deformation amount
-// sk  : sticky threshold (needs min force to start moving)
-const CFG = {
-  smooth: { name:'なめらか', fr:0.994,  gv:0.45, vb:0,   dm:0,    sk:0    },
-  ice:    { name:'氷',       fr:0.9988, gv:0.52, vb:0,   dm:0,    sk:0    },
-  rough:  { name:'ざらざら', fr:0.957,  gv:0.35, vb:1.4, dm:0.08, sk:0    },
-  sticky: { name:'粘着',     fr:0.882,  gv:0.28, vb:0,   dm:0.32, sk:0.14 }
-};
+let rawGamma=0, prevGamma=0, dGamma=0, lastDir=1;
+let hasG=false, playing=false;
 
-let cur = 'smooth', c = CFG.smooth;
+// Camera pan: drop fixed in world, screen pans with tilt
+const PAN = () => C.width / 55;
 
-let bx, by, bvx, bvy;
-let tiltX = 0, tiltY = 0;
+// ── Stretch spring ────────────────────────────────────────
+let stretch  = 0;   // + = right elongation, - = left elongation
+let stretchV = 0;
 
-let phase  = 'spawn';
-let phaseT = 0;
-let fallVx = 0, fallVy = 0;
-const FALL_MS  = 420;
-const SPAWN_MS = 380;
+let wasInContact = false;
 
-function spawnBall(){
-  bx = W/2; by = H/2; bvx = 0; bvy = 0;
-  phase = 'spawn'; phaseT = 0;
-}
-spawnBall();
+const CONTACT_DEG  = 14;
+const SPRING_K     = 20;
+const SPRING_DAMP  = 0.68;  // underdamped = good poyong bounce
+const IMPULSE_MAX  = 6.5;
 
-function eob(t){ const c1=1.70158, c3=c1+1; return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2); }
+let lt=0;
+function loop(ts){
+  if(!playing) return;
+  const dt=Math.min((ts-lt)/1000,0.05); lt=ts;
 
-document.querySelectorAll('.tab').forEach(b => {
-  b.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
-    b.classList.add('active');
-    cur = b.dataset.s; c = CFG[cur];
-    document.getElementById('lbl').textContent = c.name;
-    spawnBall();
-  });
-});
+  dGamma=(rawGamma-prevGamma)/Math.max(dt,0.001);
+  prevGamma=rawGamma;
+  if(Math.abs(rawGamma)>3) lastDir=Math.sign(rawGamma);
 
-// Sensor
-function onOri(e){
-  if (e.gamma == null) return;
-  tiltX = Math.max(-1, Math.min(1, e.gamma       / 22));
-  tiltY = Math.max(-1, Math.min(1, (e.beta - 30) / 22));
-}
-function setupOri(){ window.addEventListener('deviceorientation', onOri); }
+  const inContact = Math.abs(rawGamma) < CONTACT_DEG;
 
-const pb = document.getElementById('perm');
-const ps = document.getElementById('perm-sub');
-if (typeof DeviceOrientationEvent !== 'undefined' &&
-    typeof DeviceOrientationEvent.requestPermission === 'function') {
-  pb.style.display = 'block'; ps.style.display = 'block';
-  pb.addEventListener('click', async () => {
-    try {
-      if (await DeviceOrientationEvent.requestPermission() === 'granted'){
-        setupOri(); pb.style.display = 'none'; ps.style.display = 'none';
-      }
-    } catch(e){ pb.textContent = '再度タップ'; }
-  });
-} else {
-  setupOri();
-}
-
-// Physics (v2 style)
-function physics(dtMs){
-  const n   = dtMs / 16.67;  // normalize to 60 fps
-  const R   = Math.min(W,H) * 0.052;
-
-  let ax = tiltX * c.gv;
-  let ay = tiltY * c.gv;
-  const spd = Math.sqrt(bvx*bvx + bvy*bvy);
-
-  if (c.vb > 0 && spd > 0.1){
-    ax += (Math.random() - 0.5) * c.vb;
-    ay += (Math.random() - 0.5) * c.vb;
+  if(inContact && !wasInContact){
+    const speed=Math.min(Math.abs(dGamma),100)/100;
+    const dir  =Math.sign(dGamma)||lastDir;
+    stretchV  +=dir*(0.4+speed*0.6)*IMPULSE_MAX;
   }
+  wasInContact=inContact;
 
-  if (c.sk > 0){
-    const f = Math.sqrt(ax*ax + ay*ay);
-    if (spd < 0.4 && f < c.sk){ ax *= 0.03; ay *= 0.03; }
-  }
-
-  const fr = Math.pow(c.fr, n);
-  bvx = (bvx + ax * n) * fr;
-  bvy = (bvy + ay * n) * fr;
-  bx += bvx * n;
-  by += bvy * n;
-
-  // Edge → fall
-  const edge = R * 0.35;
-  if (bx < edge || bx > W-edge || by < edge || by > H-edge){
-    const dx = bx-W/2, dy = by-H/2, d = Math.sqrt(dx*dx+dy*dy)||1;
-    fallVx = (dx/d) * Math.max(Math.abs(bvx), 2.5);
-    fallVy = (dy/d) * Math.max(Math.abs(bvy), 2.5);
-    phase = 'fall'; phaseT = 0;
-  }
-}
-
-// Render
-function draw(){
-  const R = Math.min(W,H) * 0.052;
-  ctx.clearRect(0,0,W,H);
-  ctx.fillStyle = '#000';
-  ctx.fillRect(0,0,W,H);
-
-  let al, sc;
-  if (phase === 'spawn'){
-    const p = Math.min(phaseT/SPAWN_MS, 1);
-    sc = eob(p); al = Math.min(p*3, 1);
-  } else if (phase === 'fall'){
-    const p = Math.min(phaseT/FALL_MS, 1);
-    sc = Math.max(0, 1-p*1.4); al = Math.max(0, 1-p*2.0);
-  } else {
-    sc = 1; al = 1;
-  }
-  if (al < 0.02 || sc < 0.01) return;
-
-  const spd = Math.sqrt(bvx*bvx + bvy*bvy);
-
-  // Shadow
-  ctx.save();
-  ctx.globalAlpha = al * 0.20;
-  ctx.beginPath();
-  ctx.arc(bx + 4*sc, by + 5*sc, R*0.82*sc, 0, Math.PI*2);
-  ctx.fillStyle = '#404040';
-  ctx.fill();
-  ctx.restore();
-
-  // Ball
-  ctx.save();
-  ctx.translate(bx, by);
-  ctx.globalAlpha = al;
-
-  let ang = 0, scX = sc, scY = sc;
-  if (c.dm > 0 && spd > 1 && phase === 'active'){
-    const str = 1 + spd * c.dm * 0.055;
-    const sqz = 1 / Math.sqrt(str);
-    ang = Math.atan2(bvy, bvx);
-    scX = str*sc; scY = sqz*sc;
-  }
-  ctx.rotate(ang);
-  ctx.scale(scX, scY);
-
-  const g = ctx.createRadialGradient(-R*0.22, -R*0.28, 1, 0, 0, R);
-  g.addColorStop(0,   '#ffffff');
-  g.addColorStop(0.6, '#c0c0c0');
-  g.addColorStop(1,   '#555555');
-  ctx.beginPath();
-  ctx.arc(0, 0, R, 0, Math.PI*2);
-  ctx.fillStyle = g;
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.arc(-R*0.27, -R*0.31, R*0.20, 0, Math.PI*2);
-  ctx.fillStyle = 'rgba(255,255,255,0.44)';
-  ctx.fill();
-
-  ctx.restore();
-}
-
-// Loop
-let prevTs = 0;
-function tick(ts){
-  const dtMs = prevTs ? Math.min(ts - prevTs, 50) : 16.67;
-  prevTs = ts;
-  phaseT += dtMs;
-
-  if (phase === 'spawn'){
-    if (phaseT >= SPAWN_MS){ phase = 'active'; phaseT = 0; }
-  } else if (phase === 'fall'){
-    const dt = dtMs / 1000;
-    bx += fallVx * dt * 2.5;
-    by += fallVy * dt * 2.5;
-    if (phaseT >= FALL_MS) spawnBall();
-  } else {
-    physics(dtMs);
-  }
+  stretchV-=stretch*SPRING_K*dt;
+  stretchV*=Math.pow(SPRING_DAMP,dt*60);
+  stretch +=stretchV*dt;
 
   draw();
-  requestAnimationFrame(tick);
+  requestAnimationFrame(loop);
 }
-requestAnimationFrame(tick);
+
+function draw(){
+  const W=C.width, H=C.height;
+  X.fillStyle='#0c0c0c'; X.fillRect(0,0,W,H);
+
+  // Drop screen position via camera pan
+  const dx=W/2 - rawGamma*PAN();
+  const dy=H/2;
+  // 2× bigger
+  const R =Math.min(W,H)*0.184;
+
+  const absS=Math.abs(stretch);
+  // Whole drop stretches dramatically — no separate thread/satellite
+  const rX = R * (1 + absS * 1.55);   // strong horizontal elongation
+  const rY = R * (1 / (1 + absS * 0.60));  // volume-conservation vertical squish
+
+  // Drop shadow
+  X.save();
+  X.translate(dx, dy+rY*0.88);
+  X.scale(rX*0.85, rY*0.15);
+  X.beginPath(); X.arc(0,0,1,0,Math.PI*2);
+  X.fillStyle='rgba(255,255,255,0.07)'; X.fill();
+  X.restore();
+
+  // ── Main drop body (ellipse, gradient defined in local space) ──
+  X.save();
+  X.translate(dx,dy);
+  X.scale(rX/R, rY/R);
+
+  // Clip to ellipse
+  X.beginPath(); X.arc(0,0,R,0,Math.PI*2); X.clip();
+
+  // Gradient in local (scaled) coords — highlight stays proportional
+  const grd=X.createRadialGradient(-R*0.25,-R*0.28,R*0.04, 0,0,R*1.05);
+  grd.addColorStop(0,  'rgba(255,255,255,0.96)');
+  grd.addColorStop(0.30,'rgba(175,175,175,0.90)');
+  grd.addColorStop(0.65,'rgba(90,90,90,0.85)');
+  grd.addColorStop(1,  'rgba(28,28,28,0.88)');
+
+  X.fillStyle=grd;
+  X.fillRect(-rX,-rY, rX*2, rY*2);  // fill within clip
+  X.restore();
+
+  // ── Edge highlight ring (gives glassy depth) ────────────
+  X.save();
+  X.translate(dx,dy);
+  X.scale(rX/R, rY/R);
+  X.beginPath(); X.arc(0,0,R,0,Math.PI*2);
+  X.strokeStyle=`rgba(255,255,255,${(0.15+absS*0.08).toFixed(3)})`;
+  X.lineWidth=2;
+  X.stroke();
+  X.restore();
+
+  // ── Specular highlights (in screen space, move with stretch) ──
+  // Primary: top-left of the drop
+  const hlx=dx-rX*0.25, hly=dy-rY*0.30;
+  const hlR=R*0.16;
+  X.beginPath(); X.arc(hlx,hly,hlR,0,Math.PI*2);
+  X.fillStyle='rgba(255,255,255,0.80)'; X.fill();
+
+  // Secondary smaller
+  X.beginPath(); X.arc(dx-rX*0.10, dy-rY*0.52, R*0.072, 0, Math.PI*2);
+  X.fillStyle='rgba(255,255,255,0.45)'; X.fill();
+}
+
+window.addEventListener('deviceorientation',e=>{hasG=true; rawGamma=e.gamma||0;},true);
+
+const K={};
+window.addEventListener('keydown',e=>{K[e.key]=true;});
+window.addEventListener('keyup',  e=>{K[e.key]=false;});
+let kGamma=0;
+setInterval(()=>{
+  if(hasG) return;
+  const s=2.5;
+  if     (K['ArrowLeft'] ||K['a']) kGamma=Math.max(-90,kGamma-s);
+  else if(K['ArrowRight']||K['d']) kGamma=Math.min( 90,kGamma+s);
+  else kGamma*=0.84;
+  rawGamma=kGamma;
+},16);
+
+document.getElementById('sb').addEventListener('click',async function(){
+  if(typeof DeviceOrientationEvent!=='undefined'&&
+     typeof DeviceOrientationEvent.requestPermission==='function'){
+    try{const r=await DeviceOrientationEvent.requestPermission();
+        if(r==='granted') window.addEventListener('deviceorientation',e=>{hasG=true;rawGamma=e.gamma||0;},true);
+    }catch(e){}
+  }
+  document.getElementById('over').style.display='none';
+  stretch=0; stretchV=0; wasInContact=false; prevGamma=rawGamma; lastDir=1;
+  playing=true; lt=performance.now(); requestAnimationFrame(loop);
+});
 </script>
 </body>
 </html>
